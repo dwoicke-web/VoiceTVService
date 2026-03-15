@@ -5,7 +5,10 @@
       "Bash(git config:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(- 4x 32\" Fire TVs positioned around center:*)"
+      "Bash(- 4x 32\" Fire TVs positioned around center:*)",
+      "Bash(python3 -m venv venv)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)"
     ]
   }
 }
