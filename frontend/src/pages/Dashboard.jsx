@@ -9,6 +9,7 @@ const Dashboard = () => {
   const [tvs, setTVs] = useState([]);
   const [selectedTV, setSelectedTV] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchMetadata, setSearchMetadata] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastSearchQuery, setLastSearchQuery] = useState('');
@@ -45,6 +46,14 @@ const Dashboard = () => {
 
       const response = await axios.get(`/api/search/all?${params}`);
       setSearchResults(response.data.results);
+
+      // Store metadata for display
+      setSearchMetadata({
+        searchTime: response.data.search_time_ms,
+        serviceBreakdown: response.data.service_breakdown,
+        total: response.data.total,
+        timestamp: response.data.timestamp
+      });
 
       if (response.data.results.length === 0) {
         setError(`No results found for "${query}"`);
@@ -111,6 +120,7 @@ const Dashboard = () => {
               selectedTV={selectedTV}
               onLaunchContent={handleLaunchContent}
               isLoading={isLoading}
+              metadata={searchMetadata}
             />
           ) : (
             <div className="no-search">

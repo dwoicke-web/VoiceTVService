@@ -1,7 +1,7 @@
 import React from 'react';
 import '../styles/ResultsList.css';
 
-const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading }) => {
+const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading, metadata }) => {
   if (isLoading) {
     return <div className="results-loading">Loading results...</div>;
   }
@@ -20,7 +20,32 @@ const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading }) => {
 
   return (
     <div className="results-container">
-      <h2>Search Results ({results.length})</h2>
+      <div className="results-header">
+        <h2>Search Results ({results.length})</h2>
+        {metadata && (
+          <div className="search-metadata">
+            <span className="metadata-item">⚡ {metadata.searchTime}ms</span>
+            <span className="metadata-separator">•</span>
+            <span className="metadata-item">From 9 services</span>
+          </div>
+        )}
+      </div>
+
+      {metadata && metadata.serviceBreakdown && (
+        <div className="service-breakdown">
+          <details>
+            <summary>Service Breakdown</summary>
+            <div className="breakdown-grid">
+              {Object.entries(metadata.serviceBreakdown).map(([service, count]) => (
+                <div key={service} className="breakdown-item">
+                  <span className="service-name">{service}</span>
+                  <span className="result-count">{count} results</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
 
       <div className="results-grid">
         {results.map((result) => (
