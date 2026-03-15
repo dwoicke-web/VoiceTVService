@@ -23,10 +23,12 @@ CORS(app)
 # Import routes
 from routes.search import search_bp
 from routes.tv_control import tv_control_bp
+from routes.voice import voice_bp
 
 # Register blueprints
 app.register_blueprint(search_bp)
 app.register_blueprint(tv_control_bp)
+app.register_blueprint(voice_bp)
 
 
 @app.route('/health', methods=['GET'])
