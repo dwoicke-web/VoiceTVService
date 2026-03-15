@@ -83,8 +83,8 @@ const Dashboard = () => {
   return (
     <div className="dashboard-container">
       <header className="dashboard-header">
-        <h1>🎬 VoiceTV Service</h1>
-        <p className="subtitle">Control your basement entertainment system</p>
+        <h1>🎬 Dan's Basement TV Control Service</h1>
+        <p className="subtitle">Control your entertainment system with style</p>
       </header>
 
       {error && <div className="error-message">{error}</div>}
