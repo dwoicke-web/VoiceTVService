@@ -55,6 +55,15 @@ class HBOMaxProvider(SearchProvider):
                 'release_year': 2021,
                 'type': 'show'
             },
+            {
+                'id': 'the_sopranos',
+                'title': 'The Sopranos',
+                'description': 'A crime drama about a New Jersey mob boss seeking therapy',
+                'poster': 'https://via.placeholder.com/150x225?text=Sopranos',
+                'imdb_rating': 9.2,
+                'release_year': 1999,
+                'type': 'show'
+            },
         ],
         'movies': [
             {
