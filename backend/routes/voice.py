@@ -6,6 +6,7 @@ import asyncio
 import sys
 import os
 import json
+import logging
 from flask import Blueprint, request, jsonify
 
 # Ensure correct Python path for imports
@@ -19,7 +20,9 @@ from apis.sonos import get_sonos_manager
 from apis.tv_control import get_tv_manager
 from apis.tv_control.smartthings import SamsungSmartThingsDevice
 from apis.tv_control.fire_tv import FireTVDevice
+from logging_config import get_logger
 
+logger = get_logger(__name__)
 voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
 
 
@@ -100,7 +103,7 @@ def transcribe_audio():
         return jsonify(result), 200
 
     except Exception as e:
-        print(f"Error transcribing audio: {e}")
+        logger.error(f"Error transcribing audio: {e}", exc_info=True)
         return jsonify({
             'error': 'Transcription failed',
             'message': str(e)
@@ -145,7 +148,7 @@ def process_voice_command():
         }), 200
 
     except Exception as e:
-        print(f"Error processing command: {e}")
+        logger.error(f"Error processing voice command: {e}", exc_info=True)
         return jsonify({
             'error': 'Command processing failed',
             'message': str(e)
@@ -199,7 +202,7 @@ def execute_voice_command():
         return jsonify(result), 200 if result.get('status') == 'success' else 400
 
     except Exception as e:
-        print(f"Error executing command: {e}")
+        logger.error(f"Error executing voice command: {e}", exc_info=True)
         return jsonify({
             'error': 'Command execution failed',
             'message': str(e)

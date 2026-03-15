@@ -5,6 +5,7 @@ TV Control routes - Control TV devices and launch content
 import asyncio
 import sys
 import os
+import logging
 from flask import Blueprint, request, jsonify
 
 # Ensure correct Python path for imports
@@ -15,7 +16,9 @@ if backend_dir not in sys.path:
 from apis.tv_control import get_tv_manager
 from apis.tv_control.smartthings import SamsungSmartThingsDevice
 from apis.tv_control.fire_tv import FireTVDevice
+from logging_config import get_logger
 
+logger = get_logger(__name__)
 tv_control_bp = Blueprint('tv_control', __name__, url_prefix='/api/tv')
 
 
@@ -115,7 +118,7 @@ def launch_content():
         }), 200
 
     except Exception as e:
-        print(f"Error launching content: {e}")
+        logger.error(f"Error launching content - tv_id: {tv_id}, service: {service}: {e}", exc_info=True)
         return jsonify({
             'error': 'Failed to launch content',
             'message': str(e)

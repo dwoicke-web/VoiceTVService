@@ -6,6 +6,7 @@ Implements unified search across all streaming services
 import asyncio
 import sys
 import os
+import logging
 from flask import Blueprint, request, jsonify
 
 # Ensure correct Python path for imports
@@ -14,7 +15,10 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from apis.search import get_search_aggregator
+from logging_config import get_logger
+from validators import validate_query_string, validate_content_type, ValidationError
 
+logger = get_logger(__name__)
 search_bp = Blueprint('search', __name__, url_prefix='/api/search')
 
 
@@ -38,18 +42,24 @@ def search_all():
     Query params:
         - query: search term (show name, movie name, sports event)
         - content_type: 'show', 'movie', 'sports' (optional, defaults to 'all')
+
+    Returns:
+        200: Search results from all services
+        400: Invalid input parameters
+        500: Server error during search
     """
-    query = request.args.get('query', '').strip()
-    content_type = request.args.get('content_type', 'all').lower()
-
-    if not query:
-        return jsonify({'error': 'Query parameter required'}), 400
-
-    # Validate content_type
-    if content_type not in ['all', 'show', 'movie', 'sports']:
-        return jsonify({'error': 'Invalid content_type. Use: all, show, movie, or sports'}), 400
-
     try:
+        # Validate input parameters
+        query_raw = request.args.get('query', '').strip()
+        if not query_raw:
+            logger.warning("Search request without query parameter")
+            return jsonify({'error': 'Query parameter required'}), 400
+
+        query = validate_query_string(query_raw)
+        content_type = validate_content_type(request.args.get('content_type', 'all'))
+
+        logger.info(f"Searching for: '{query}' (type: {content_type})")
+
         # Get search aggregator
         aggregator = get_search_aggregator()
 
@@ -57,14 +67,18 @@ def search_all():
         loop = _get_or_create_event_loop()
         result = loop.run_until_complete(aggregator.search(query, content_type))
 
+        logger.debug(f"Search completed - found {len(result.get('results', []))} results")
         return jsonify(result), 200
 
+    except ValidationError as e:
+        logger.warning(f"Validation error in search: {e}")
+        return jsonify({'error': 'Invalid input', 'message': str(e)}), 400
+    except TimeoutError as e:
+        logger.error(f"Search timeout for query '{query_raw}': {e}")
+        return jsonify({'error': 'Search timeout', 'message': 'Search took too long'}), 504
     except Exception as e:
-        print(f"Error during search: {e}")
-        return jsonify({
-            'error': 'Search failed',
-            'message': str(e)
-        }), 500
+        logger.error(f"Error during search for query '{query_raw}': {e}", exc_info=True)
+        return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
 @search_bp.route('/youtube-tv', methods=['GET'])
@@ -91,7 +105,7 @@ def search_youtube_tv():
         }), 200
 
     except Exception as e:
-        print(f"Error searching YouTubeTV: {e}")
+        logger.error(f"Error searching YouTubeTV for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -119,7 +133,7 @@ def search_peacock():
         }), 200
 
     except Exception as e:
-        print(f"Error searching Peacock: {e}")
+        logger.error(f"Error searching Peacock for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -147,7 +161,7 @@ def search_espn_plus():
         }), 200
 
     except Exception as e:
-        print(f"Error searching ESPN+: {e}")
+        logger.error(f"Error searching ESPN+ for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -175,7 +189,7 @@ def search_amazon_prime():
         }), 200
 
     except Exception as e:
-        print(f"Error searching Amazon Prime: {e}")
+        logger.error(f"Error searching Amazon Prime for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -203,7 +217,7 @@ def search_hbo_max():
         }), 200
 
     except Exception as e:
-        print(f"Error searching HBO Max: {e}")
+        logger.error(f"Error searching HBO Max for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -231,7 +245,7 @@ def search_youtube():
         }), 200
 
     except Exception as e:
-        print(f"Error searching YouTube: {e}")
+        logger.error(f"Error searching YouTube for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -259,7 +273,7 @@ def search_fandango():
         }), 200
 
     except Exception as e:
-        print(f"Error searching Fandango: {e}")
+        logger.error(f"Error searching Fandango for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -287,7 +301,7 @@ def search_vudu():
         }), 200
 
     except Exception as e:
-        print(f"Error searching Vudu: {e}")
+        logger.error(f"Error searching Vudu for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -315,7 +329,7 @@ def search_justwatch():
         }), 200
 
     except Exception as e:
-        print(f"Error searching JustWatch: {e}")
+        logger.error(f"Error searching JustWatch for query '{query}': {e}", exc_info=True)
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
