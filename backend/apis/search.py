@@ -14,8 +14,9 @@ from .streaming.peacock import PeacockProvider
 from .streaming.espn_plus import ESPNPlusProvider
 from .streaming.prime_video import PrimeVideoProvider
 from .streaming.hbo_max import HBOMaxProvider
-from .streaming.fubo import FuboProvider
 from .streaming.fandango import FandangoProvider
+from .streaming.vudu import VuduProvider
+from .streaming.justwatch import JustWatchProvider
 
 
 class SearchAggregator:
@@ -30,8 +31,9 @@ class SearchAggregator:
             ESPNPlusProvider(),
             PrimeVideoProvider(),
             HBOMaxProvider(),
-            FuboProvider(),
             FandangoProvider(),
+            VuduProvider(),
+            JustWatchProvider(),
         ]
         self.cache: Dict[str, Dict[str, Any]] = {}  # In-memory cache
         self.cache_ttl = 300  # 5 minutes cache TTL

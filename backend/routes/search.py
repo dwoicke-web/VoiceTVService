@@ -18,6 +18,19 @@ from apis.search import get_search_aggregator
 search_bp = Blueprint('search', __name__, url_prefix='/api/search')
 
 
+def _get_or_create_event_loop():
+    """Get or create event loop for async operations in Flask threads"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Event loop is closed")
+        return loop
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
 @search_bp.route('/all', methods=['GET'])
 def search_all():
     """
@@ -41,14 +54,7 @@ def search_all():
         aggregator = get_search_aggregator()
 
         # Run async search - handle event loop properly for Flask
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError("Event loop is closed")
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
+        loop = _get_or_create_event_loop()
         result = loop.run_until_complete(aggregator.search(query, content_type))
 
         return jsonify(result), 200
@@ -74,7 +80,7 @@ def search_youtube_tv():
         from apis.streaming.youtube_tv import YouTubeTVProvider
 
         provider = YouTubeTVProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -102,7 +108,7 @@ def search_peacock():
         from apis.streaming.peacock import PeacockProvider
 
         provider = PeacockProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -130,7 +136,7 @@ def search_espn_plus():
         from apis.streaming.espn_plus import ESPNPlusProvider
 
         provider = ESPNPlusProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -158,7 +164,7 @@ def search_amazon_prime():
         from apis.streaming.prime_video import PrimeVideoProvider
 
         provider = PrimeVideoProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -186,7 +192,7 @@ def search_hbo_max():
         from apis.streaming.hbo_max import HBOMaxProvider
 
         provider = HBOMaxProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -214,7 +220,7 @@ def search_youtube():
         from apis.streaming.youtube import YouTubeProvider
 
         provider = YouTubeProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -226,34 +232,6 @@ def search_youtube():
 
     except Exception as e:
         print(f"Error searching YouTube: {e}")
-        return jsonify({'error': 'Search failed', 'message': str(e)}), 500
-
-
-@search_bp.route('/fubo', methods=['GET'])
-def search_fubo():
-    """Search Fubo for content"""
-    query = request.args.get('query', '').strip()
-    content_type = request.args.get('content_type', 'all').lower()
-
-    if not query:
-        return jsonify({'error': 'Query required'}), 400
-
-    try:
-        from apis.streaming.fubo import FuboProvider
-
-        provider = FuboProvider()
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(provider.search(query, content_type))
-
-        return jsonify({
-            'service': 'Fubo',
-            'query': query,
-            'results': results,
-            'total': len(results)
-        }), 200
-
-    except Exception as e:
-        print(f"Error searching Fubo: {e}")
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
@@ -270,7 +248,7 @@ def search_fandango():
         from apis.streaming.fandango import FandangoProvider
 
         provider = FandangoProvider()
-        loop = asyncio.get_event_loop()
+        loop = _get_or_create_event_loop()
         results = loop.run_until_complete(provider.search(query, content_type))
 
         return jsonify({
@@ -282,6 +260,62 @@ def search_fandango():
 
     except Exception as e:
         print(f"Error searching Fandango: {e}")
+        return jsonify({'error': 'Search failed', 'message': str(e)}), 500
+
+
+@search_bp.route('/vudu', methods=['GET'])
+def search_vudu():
+    """Search Vudu for content"""
+    query = request.args.get('query', '').strip()
+    content_type = request.args.get('content_type', 'all').lower()
+
+    if not query:
+        return jsonify({'error': 'Query required'}), 400
+
+    try:
+        from apis.streaming.vudu import VuduProvider
+
+        provider = VuduProvider()
+        loop = _get_or_create_event_loop()
+        results = loop.run_until_complete(provider.search(query, content_type))
+
+        return jsonify({
+            'service': 'Vudu',
+            'query': query,
+            'results': results,
+            'total': len(results)
+        }), 200
+
+    except Exception as e:
+        print(f"Error searching Vudu: {e}")
+        return jsonify({'error': 'Search failed', 'message': str(e)}), 500
+
+
+@search_bp.route('/justwatch', methods=['GET'])
+def search_justwatch():
+    """Search JustWatch for content"""
+    query = request.args.get('query', '').strip()
+    content_type = request.args.get('content_type', 'all').lower()
+
+    if not query:
+        return jsonify({'error': 'Query required'}), 400
+
+    try:
+        from apis.streaming.justwatch import JustWatchProvider
+
+        provider = JustWatchProvider()
+        loop = _get_or_create_event_loop()
+        results = loop.run_until_complete(provider.search(query, content_type))
+
+        return jsonify({
+            'service': 'JustWatch',
+            'query': query,
+            'results': results,
+            'total': len(results)
+        }), 200
+
+    except Exception as e:
+        print(f"Error searching JustWatch: {e}")
         return jsonify({'error': 'Search failed', 'message': str(e)}), 500
 
 
