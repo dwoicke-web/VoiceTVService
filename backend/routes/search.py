@@ -4,8 +4,16 @@ Implements unified search across all streaming services
 """
 
 import asyncio
+import sys
+import os
 from flask import Blueprint, request, jsonify
-from ..apis.search import get_search_aggregator
+
+# Ensure correct Python path for imports
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+from apis.search import get_search_aggregator
 
 search_bp = Blueprint('search', __name__, url_prefix='/api/search')
 
@@ -32,8 +40,15 @@ def search_all():
         # Get search aggregator
         aggregator = get_search_aggregator()
 
-        # Run async search
-        loop = asyncio.get_event_loop()
+        # Run async search - handle event loop properly for Flask
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("Event loop is closed")
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
         result = loop.run_until_complete(aggregator.search(query, content_type))
 
         return jsonify(result), 200
@@ -56,7 +71,7 @@ def search_youtube_tv():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.youtube_tv import YouTubeTVProvider
+        from apis.streaming.youtube_tv import YouTubeTVProvider
 
         provider = YouTubeTVProvider()
         loop = asyncio.get_event_loop()
@@ -84,7 +99,7 @@ def search_peacock():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.peacock import PeacockProvider
+        from apis.streaming.peacock import PeacockProvider
 
         provider = PeacockProvider()
         loop = asyncio.get_event_loop()
@@ -112,7 +127,7 @@ def search_espn_plus():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.espn_plus import ESPNPlusProvider
+        from apis.streaming.espn_plus import ESPNPlusProvider
 
         provider = ESPNPlusProvider()
         loop = asyncio.get_event_loop()
@@ -140,7 +155,7 @@ def search_amazon_prime():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.prime_video import PrimeVideoProvider
+        from apis.streaming.prime_video import PrimeVideoProvider
 
         provider = PrimeVideoProvider()
         loop = asyncio.get_event_loop()
@@ -168,7 +183,7 @@ def search_hbo_max():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.hbo_max import HBOMaxProvider
+        from apis.streaming.hbo_max import HBOMaxProvider
 
         provider = HBOMaxProvider()
         loop = asyncio.get_event_loop()
@@ -196,7 +211,7 @@ def search_youtube():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.youtube import YouTubeProvider
+        from apis.streaming.youtube import YouTubeProvider
 
         provider = YouTubeProvider()
         loop = asyncio.get_event_loop()
@@ -224,7 +239,7 @@ def search_fubo():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.fubo import FuboProvider
+        from apis.streaming.fubo import FuboProvider
 
         provider = FuboProvider()
         loop = asyncio.get_event_loop()
@@ -252,7 +267,7 @@ def search_fandango():
         return jsonify({'error': 'Query required'}), 400
 
     try:
-        from ..apis.streaming.fandango import FandangoProvider
+        from apis.streaming.fandango import FandangoProvider
 
         provider = FandangoProvider()
         loop = asyncio.get_event_loop()
