@@ -16,10 +16,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from logging_config import setup_logging, get_logger
+from auth import get_api_key_manager
 
 # Setup structured logging
 setup_logging()
 logger = get_logger(__name__)
+
+# Initialize API key management
+api_key_manager = get_api_key_manager()
+logger.info("API key manager initialized")
 
 # Initialize Flask app
 app = Flask(__name__)
