@@ -13,6 +13,7 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastSearchQuery, setLastSearchQuery] = useState('');
+  const [playingContent, setPlayingContent] = useState({}); // Track what's playing on each TV
 
   // Fetch available TVs on component mount
   useEffect(() => {
@@ -75,6 +76,16 @@ const Dashboard = () => {
         service: content.available_services[0] // Use first available service
       });
 
+      // Update the playing content for this TV
+      setPlayingContent(prev => ({
+        ...prev,
+        [tv.id]: {
+          title: content.title,
+          poster: content.poster,
+          service: content.available_services[0]
+        }
+      }));
+
       alert(`Launching "${content.title}" on ${tv.name}!`);
       setError(null);
     } catch (err) {
@@ -105,6 +116,7 @@ const Dashboard = () => {
               tvs={tvs}
               selectedTV={selectedTV}
               onSelectTV={handleSelectTV}
+              playingContent={playingContent}
             />
           ) : (
             <div className="loading">Loading TV configuration...</div>
