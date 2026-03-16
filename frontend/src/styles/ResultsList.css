@@ -72,7 +72,27 @@
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  padding: 5px 0;
+  padding: 6px 10px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.breakdown-item:hover {
+  border-color: #667eea;
+  background: #f0f2ff;
+}
+
+.breakdown-item.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: transparent;
+}
+
+.breakdown-item.active .service-name,
+.breakdown-item.active .result-count {
+  color: white;
 }
 
 .service-name {
@@ -83,6 +103,42 @@
 .result-count {
   color: #999;
   font-size: 11px;
+  background: #f0f0f0;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.breakdown-item.active .result-count {
+  background: rgba(255,255,255,0.25);
+}
+
+.active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #e8eaf6;
+  color: #3949ab;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.clear-filter {
+  background: none;
+  border: 1px solid #3949ab;
+  color: #3949ab;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.clear-filter:hover {
+  background: #3949ab;
+  color: white;
 }
 
 .results-grid {
@@ -216,42 +272,43 @@
 
 .service-badge {
   display: inline-block;
-  padding: 3px 8px;
-  font-size: 10px;
+  padding: 5px 10px;
+  font-size: 11px;
+  background: #e8eaf6;
+  color: #3949ab;
+  border: 1px solid #c5cae9;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: default;
+  transition: all 0.2s ease;
+}
+
+.service-badge.launchable {
+  cursor: pointer;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.service-badge.launchable:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+}
+
+.service-badge:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tv-select-reminder {
+  background: #fff3e0;
+  color: #e65100;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 500;
-}
-
-.result-tvs {
-  margin-bottom: 0;
-}
-
-.tvs-label {
-  display: block;
-  font-size: 11px;
-  color: #999;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.tv-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.tv-chip {
-  display: inline-block;
-  padding: 3px 8px;
-  font-size: 10px;
-  background: #e8f5e9;
-  color: #2e7d32;
-  border-radius: 4px;
-  font-weight: 500;
-  text-transform: capitalize;
+  margin-bottom: 16px;
+  text-align: center;
 }
 
 /* Empty State */

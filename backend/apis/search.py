@@ -87,18 +87,76 @@ class SearchAggregator:
 
         # Combine results from all services
         all_results = []
-        service_breakdown = {}
 
         for provider, result in zip(self.providers, results_by_service):
             if isinstance(result, Exception):
                 print(f"Error searching {provider.service_name}: {result}")
-                service_breakdown[provider.service_name] = 0
             else:
                 all_results.extend(result)
-                service_breakdown[provider.service_name] = len(result)
 
         # Deduplicate and rank results
         ranked_results = self._deduplicate_and_rank(all_results)
+
+        # Services the user cares about, in display order
+        MY_SERVICES = [
+            'YouTube TV', 'Netflix', 'ESPN', 'Prime Video', 'HBO Max',
+            'MLB', 'Disney+', 'Hulu', 'Peacock', 'YouTube', 'Vudu',
+        ]
+
+        # Map JustWatch variant names to our canonical service names
+        SERVICE_NORMALIZE = {
+            'youtubetv': 'YouTube TV',
+            'youtube tv': 'YouTube TV',
+            'netflix': 'Netflix',
+            'netflix standard with ads': 'Netflix',
+            'netflix basic with ads': 'Netflix',
+            'espn': 'ESPN',
+            'espn+': 'ESPN',
+            'espn plus': 'ESPN',
+            'amazon prime video': 'Prime Video',
+            'amazon prime video with ads': 'Prime Video',
+            'amazon video': 'Prime Video',
+            'prime video': 'Prime Video',
+            'hbo max': 'HBO Max',
+            'hbo max amazon channel': 'HBO Max',
+            'max': 'HBO Max',
+            'max amazon channel': 'HBO Max',
+            'mlb': 'MLB',
+            'mlb.tv': 'MLB',
+            'mlb tv': 'MLB',
+            'disney plus': 'Disney+',
+            'disney+': 'Disney+',
+            'hulu': 'Hulu',
+            'peacock': 'Peacock',
+            'peacock premium': 'Peacock',
+            'peacock premium plus': 'Peacock',
+            'youtube': 'YouTube',
+            'vudu': 'Vudu',
+            'fandango at home': 'Vudu',
+            'fandango at home free': 'Vudu',
+        }
+
+        # Normalize available_services on each result to canonical names
+        for result in ranked_results:
+            raw_services = result.get('available_services', [])
+            normalized = []
+            seen = set()
+            for svc in raw_services:
+                canonical = SERVICE_NORMALIZE.get(svc.lower(), svc)
+                if canonical not in seen:
+                    normalized.append(canonical)
+                    seen.add(canonical)
+            result['available_services'] = normalized
+
+        # Build service breakdown from only the services the user cares about
+        service_breakdown = {svc: 0 for svc in MY_SERVICES}
+        for result in ranked_results:
+            for svc in result.get('available_services', []):
+                if svc in service_breakdown:
+                    service_breakdown[svc] += 1
+
+        # Remove services with 0 results, keep display order
+        service_breakdown = {k: v for k, v in service_breakdown.items() if v > 0}
 
         # Prepare response
         response = {

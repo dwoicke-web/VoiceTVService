@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/TVLayout.css';
 
-const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {} }) => {
+const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {}, onResetChannel }) => {
   // Helper function to render TV content (either now playing or default info)
   const renderTVContent = (tvId, tvName, tvSize, tvType) => {
     const playing = playingContent[tvId];
@@ -46,6 +46,15 @@ const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {} }) => {
               {renderTVContent('upper_left', 'Upper Left', '32"', 'Fire TV')}
             </div>
           </div>
+          {onResetChannel && (
+            <button
+              className="reset-channel-btn"
+              onClick={() => onResetChannel(tvs.find(tv => tv.id === 'upper_left'))}
+              title="Reset to antenna channel 7"
+            >
+              📡 Reset Antenna 7
+            </button>
+          )}
         </div>
 
         {/* Upper Right TV */}
@@ -58,18 +67,15 @@ const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {} }) => {
               {renderTVContent('upper_right', 'Upper Right', '32"', 'Fire TV')}
             </div>
           </div>
-        </div>
-
-        {/* Center Big Screen */}
-        <div className="tv-slot center">
-          <div
-            className={`tv big-screen ${selectedTV?.id === 'big_screen' ? 'selected' : ''}`}
-            onClick={() => onSelectTV(tvs.find(tv => tv.id === 'big_screen'))}
-          >
-            <div className="tv-frame">
-              {renderTVContent('big_screen', 'Big Screen', '75"', 'Samsung Smart TV')}
-            </div>
-          </div>
+          {onResetChannel && (
+            <button
+              className="reset-channel-btn"
+              onClick={() => onResetChannel(tvs.find(tv => tv.id === 'upper_right'))}
+              title="Reset to antenna channel 10"
+            >
+              📡 Reset Antenna 10
+            </button>
+          )}
         </div>
 
         {/* Lower Left TV */}
@@ -82,6 +88,15 @@ const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {} }) => {
               {renderTVContent('lower_left', 'Lower Left', '32"', 'Fire TV')}
             </div>
           </div>
+          {onResetChannel && (
+            <button
+              className="reset-channel-btn"
+              onClick={() => onResetChannel(tvs.find(tv => tv.id === 'lower_left'))}
+              title="Reset to antenna channel 8"
+            >
+              📡 Reset Antenna 8
+            </button>
+          )}
         </div>
 
         {/* Lower Right TV */}
@@ -94,6 +109,15 @@ const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {} }) => {
               {renderTVContent('lower_right', 'Lower Right', '32"', 'Fire TV')}
             </div>
           </div>
+          {onResetChannel && (
+            <button
+              className="reset-channel-btn"
+              onClick={() => onResetChannel(tvs.find(tv => tv.id === 'lower_right'))}
+              title="Reset to antenna channel 11"
+            >
+              📡 Reset Antenna 11
+            </button>
+          )}
         </div>
       </div>
 

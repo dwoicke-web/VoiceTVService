@@ -67,13 +67,14 @@ const Dashboard = () => {
     }
   };
 
-  const handleLaunchContent = async (content, tv) => {
+  const handleLaunchService = async (content, serviceName, tv) => {
     try {
       setIsLoading(true);
       const response = await axios.post('/api/tv/launch', {
         tv_id: tv.id,
         content_id: content.id,
-        service: content.available_services[0] // Use first available service
+        title: content.title,
+        service: serviceName
       });
 
       // Update the playing content for this TV
@@ -82,15 +83,15 @@ const Dashboard = () => {
         [tv.id]: {
           title: content.title,
           poster: content.poster,
-          service: content.available_services[0]
+          service: serviceName
         }
       }));
 
-      alert(`Launching "${content.title}" on ${tv.name}!`);
+      alert(`Launching ${serviceName} on ${tv.name}!`);
       setError(null);
     } catch (err) {
       console.error('Error launching content:', err);
-      setError('Failed to launch content on TV');
+      setError(`Failed to launch ${serviceName} on ${tv.name}`);
     } finally {
       setIsLoading(false);
     }
@@ -98,6 +99,86 @@ const Dashboard = () => {
 
   const handleSelectTV = (tv) => {
     setSelectedTV(tv);
+  };
+
+  const handleLaunchApp = async (appName) => {
+    if (!selectedTV) {
+      alert('Please select a TV first');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await axios.post('/api/tv/launch', {
+        tv_id: selectedTV.id,
+        content_id: appName.toLowerCase(),
+        service: appName
+      });
+
+      alert(`Launching ${appName} on ${selectedTV.name}!`);
+      setError(null);
+    } catch (err) {
+      console.error('Error launching app:', err);
+      setError(`Failed to launch ${appName} on TV`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetChannel = async (tv) => {
+    // Map TV IDs to their antenna channels
+    const channelMap = {
+      'upper_left': 7,
+      'lower_left': 8,
+      'upper_right': 10,
+      'lower_right': 11
+    };
+
+    const channel = channelMap[tv.id];
+    if (!channel) {
+      setError(`Channel not configured for ${tv.name}`);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await axios.post('/api/tv/reset-channel', {
+        tv_id: tv.id,
+        channel: channel
+      });
+
+      alert(`✅ Reset ${tv.name} to antenna channel ${channel}`);
+      setError(null);
+    } catch (err) {
+      console.error('Error resetting channel:', err);
+      setError(`Failed to reset channel on ${tv.name}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePowerAll = async (action) => {
+    try {
+      console.log(`[DEBUG] Power ${action} button clicked`);
+      setIsLoading(true);
+      console.log(`[DEBUG] Making API call to /api/tv/power-all with action: ${action}`);
+
+      const response = await axios.post('/api/tv/power-all', {
+        action: action  // 'on' or 'off'
+      });
+
+      console.log(`[DEBUG] API response:`, response.data);
+      const devicesAffected = response.data.devices_affected;
+      const actionText = action === 'on' ? 'powered on' : 'powered off';
+      alert(`✅ All ${devicesAffected} Fire TVs ${actionText}`);
+      setError(null);
+    } catch (err) {
+      console.error('Error with power command:', err);
+      console.error('Error details:', err.response?.data || err.message);
+      setError(`Failed to ${action === 'on' ? 'power on' : 'power off'} Fire TVs - Check console for details`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -109,6 +190,45 @@ const Dashboard = () => {
 
       {error && <div className="error-message">{error}</div>}
 
+      <div className="power-controls">
+        <button
+          onClick={() => handlePowerAll('on')}
+          disabled={isLoading}
+          className="power-on-btn"
+          title="Power on all 4 Fire TVs"
+        >
+          🔌 Power On All
+        </button>
+        <button
+          onClick={() => handlePowerAll('off')}
+          disabled={isLoading}
+          className="power-off-btn"
+          title="Power off all 4 Fire TVs"
+        >
+          ⏹️ Power Off All
+        </button>
+      </div>
+
+      {selectedTV && (
+        <div className="app-launcher">
+          <h3>📱 Launch Apps</h3>
+          <div className="quick-launch-section">
+            <div className="app-buttons-section">
+              <label>Select an app to launch directly on {selectedTV.name}</label>
+              <div className="app-buttons">
+                <button onClick={() => handleLaunchApp('YouTubeTV')} disabled={isLoading}>🎬 YouTube TV</button>
+                <button onClick={() => handleLaunchApp('Netflix')} disabled={isLoading}>🎥 Netflix</button>
+                <button onClick={() => handleLaunchApp('ESPN')} disabled={isLoading}>⚽ ESPN</button>
+                <button onClick={() => handleLaunchApp('Prime Video')} disabled={isLoading}>📦 Prime Video</button>
+                <button onClick={() => handleLaunchApp('HBO Max')} disabled={isLoading}>🎭 HBO Max</button>
+                <button onClick={() => handleLaunchApp('MLB')} disabled={isLoading}>⚾ MLB</button>
+                <button onClick={() => handleLaunchApp('Disney+')} disabled={isLoading}>🏰 Disney+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="dashboard-layout">
         <div className="tv-section">
           {tvs.length > 0 ? (
@@ -117,6 +237,7 @@ const Dashboard = () => {
               selectedTV={selectedTV}
               onSelectTV={handleSelectTV}
               playingContent={playingContent}
+              onResetChannel={handleResetChannel}
             />
           ) : (
             <div className="loading">Loading TV configuration...</div>
@@ -130,7 +251,7 @@ const Dashboard = () => {
             <ResultsList
               results={searchResults}
               selectedTV={selectedTV}
-              onLaunchContent={handleLaunchContent}
+              onLaunchService={handleLaunchService}
               isLoading={isLoading}
               metadata={searchMetadata}
             />

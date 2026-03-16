@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import '../styles/ResultsList.css';
 
-const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading, metadata }) => {
+const ResultsList = ({ results, selectedTV, onLaunchService, isLoading, metadata }) => {
+  const [serviceFilter, setServiceFilter] = useState(null);
+
   if (isLoading) {
     return <div className="results-loading">Loading results...</div>;
   }
@@ -10,57 +12,75 @@ const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading, metadata
     return <div className="results-empty">No results found. Try searching for a show, movie, or sports event.</div>;
   }
 
-  const handleLaunch = (result) => {
+  const handleServiceClick = (result, serviceName) => {
     if (!selectedTV) {
       alert('Please select a TV first');
       return;
     }
-    onLaunchContent(result, selectedTV);
+    onLaunchService(result, serviceName, selectedTV);
   };
+
+  const toggleFilter = (service) => {
+    setServiceFilter(prev => prev === service ? null : service);
+  };
+
+  // Filter results by selected service
+  const filteredResults = serviceFilter
+    ? results.filter(r => r.available_services && r.available_services.includes(serviceFilter))
+    : results;
 
   return (
     <div className="results-container">
       <div className="results-header">
-        <h2>Search Results ({results.length})</h2>
+        <h2>Search Results ({filteredResults.length}{serviceFilter ? ` of ${results.length}` : ''})</h2>
         {metadata && (
           <div className="search-metadata">
             <span className="metadata-item">⚡ {metadata.searchTime}ms</span>
             <span className="metadata-separator">•</span>
-            <span className="metadata-item">From 9 services</span>
+            <span className="metadata-item">From {metadata.serviceBreakdown ? Object.keys(metadata.serviceBreakdown).length : 0} services</span>
           </div>
         )}
       </div>
 
       {metadata && metadata.serviceBreakdown && (
         <div className="service-breakdown">
-          <details>
-            <summary>Service Breakdown</summary>
+          <details open={!!serviceFilter}>
+            <summary>Filter by Service</summary>
             <div className="breakdown-grid">
               {Object.entries(metadata.serviceBreakdown).map(([service, count]) => (
-                <div key={service} className="breakdown-item">
+                <button
+                  key={service}
+                  className={`breakdown-item ${serviceFilter === service ? 'active' : ''}`}
+                  onClick={() => toggleFilter(service)}
+                  title={serviceFilter === service ? 'Clear filter' : `Show only ${service} results`}
+                >
                   <span className="service-name">{service}</span>
-                  <span className="result-count">{count} results</span>
-                </div>
+                  <span className="result-count">{count}</span>
+                </button>
               ))}
             </div>
           </details>
         </div>
       )}
 
+      {serviceFilter && (
+        <div className="active-filter">
+          <span>Showing: <strong>{serviceFilter}</strong></span>
+          <button className="clear-filter" onClick={() => setServiceFilter(null)}>✕ Clear</button>
+        </div>
+      )}
+
+      {!selectedTV && (
+        <div className="tv-select-reminder">
+          ⬆️ Select a TV above, then click a streaming service below to launch it
+        </div>
+      )}
+
       <div className="results-grid">
-        {results.map((result) => (
+        {filteredResults.map((result) => (
           <div key={result.id} className="result-card">
             <div className="result-poster">
               <img src={result.poster} alt={result.title} />
-              <div className="result-overlay">
-                <button
-                  className="launch-button"
-                  onClick={() => handleLaunch(result)}
-                  disabled={!selectedTV}
-                >
-                  {selectedTV ? `Play on ${selectedTV.name}` : 'Select TV First'}
-                </button>
-              </div>
             </div>
 
             <div className="result-info">
@@ -69,23 +89,20 @@ const ResultsList = ({ results, selectedTV, onLaunchContent, isLoading, metadata
               <p className="result-description">{result.description}</p>
 
               <div className="result-services">
-                <span className="services-label">Available on:</span>
+                <span className="services-label">
+                  {selectedTV ? `Launch on ${selectedTV.name}:` : 'Available on:'}
+                </span>
                 <div className="service-badges">
                   {result.available_services && result.available_services.map((service) => (
-                    <span key={service} className="service-badge">
+                    <button
+                      key={service}
+                      className={`service-badge ${selectedTV ? 'launchable' : ''}`}
+                      onClick={() => handleServiceClick(result, service)}
+                      disabled={!selectedTV || isLoading}
+                      title={selectedTV ? `Launch ${service} on ${selectedTV.name}` : 'Select a TV first'}
+                    >
                       {service}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="result-tvs">
-                <span className="tvs-label">Can play on:</span>
-                <div className="tv-list">
-                  {result.available_tvs && result.available_tvs.map((tv_id) => (
-                    <span key={tv_id} className="tv-chip">
-                      {tv_id.replace(/_/g, ' ')}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>

@@ -96,6 +96,132 @@
   line-height: 1.6;
 }
 
+/* App Launcher */
+.app-launcher {
+  max-width: 1400px;
+  margin: 20px auto;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.app-launcher h3 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.quick-launch-section {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+.quick-program-search {
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  padding: 20px;
+  border-radius: 10px;
+  border: 2px solid #667eea30;
+}
+
+.quick-program-search label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #667eea;
+  font-size: 14px;
+}
+
+.quick-search-form {
+  display: flex;
+  gap: 10px;
+}
+
+.quick-search-input {
+  flex: 1;
+  padding: 12px 15px;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.quick-search-input:focus {
+  border-color: #764ba2;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.quick-launch-button {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.quick-launch-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.quick-launch-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-buttons-section {
+  border-top: 2px solid #f0f0f0;
+  padding-top: 15px;
+}
+
+.app-buttons-section label {
+  display: block;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #666;
+  font-size: 14px;
+}
+
+.app-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.app-buttons button {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.app-buttons button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.app-buttons button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-buttons button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
   .dashboard-layout {
@@ -163,6 +289,67 @@
   .search-section > div {
     border-radius: 8px;
   }
+}
+
+/* Power Control Buttons */
+.power-controls {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+
+.power-on-btn,
+.power-off-btn {
+  padding: 12px 28px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 150px;
+}
+
+.power-on-btn {
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+  color: white;
+}
+
+.power-on-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #56c956 0%, #4caf50 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
+}
+
+.power-on-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
+}
+
+.power-off-btn {
+  background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+  color: white;
+}
+
+.power-off-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff5252 0%, #f44336 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(244, 67, 54, 0.4);
+}
+
+.power-off-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.2);
+}
+
+.power-on-btn:disabled,
+.power-off-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* Print Styles */
