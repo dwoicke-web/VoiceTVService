@@ -1,12 +1,22 @@
-"""YouTube TV mock streaming service"""
+"""YouTube TV streaming service with real API integration"""
 
 import asyncio
+import os
+import logging
 from typing import List, Dict, Any
+import aiohttp
 from . import SearchProvider
+
+logger = logging.getLogger(__name__)
 
 
 class YouTubeTVProvider(SearchProvider):
-    """Mock YouTube TV content provider"""
+    """YouTube TV content provider with real API support"""
+
+    def __init__(self):
+        super().__init__('YouTubeTV')
+        self.api_key = os.getenv('YOUTUBE_TV_API_KEY')
+        self.base_url = 'https://www.googleapis.com/youtube/v3'
 
     # Mock content database
     CONTENT = {
@@ -108,12 +118,9 @@ class YouTubeTVProvider(SearchProvider):
         ]
     }
 
-    def __init__(self):
-        super().__init__('YouTubeTV')
-
     async def search(self, query: str, content_type: str = 'all') -> List[Dict[str, Any]]:
         """
-        Search YouTube TV content
+        Search YouTube TV content using real API or mock data
 
         Args:
             query: Search query
@@ -122,6 +129,19 @@ class YouTubeTVProvider(SearchProvider):
         Returns:
             List of matching content
         """
+        if self.api_key and self.api_key != 'your_youtube_tv_api_key_here':
+            try:
+                logger.info(f"Using real YouTube API for query: {query}")
+                return await self._search_real_api(query, content_type)
+            except Exception as e:
+                logger.warning(f"Real API search failed, falling back to mock data: {e}")
+                return await self._search_mock(query, content_type)
+        else:
+            logger.info(f"Using mock data for YouTube TV search: {query}")
+            return await self._search_mock(query, content_type)
+
+    async def _search_mock(self, query: str, content_type: str = 'all') -> List[Dict[str, Any]]:
+        """Search through mock content database"""
         query_lower = query.lower()
         results = []
 
@@ -154,6 +174,50 @@ class YouTubeTVProvider(SearchProvider):
 
         # Simulate search delay
         await asyncio.sleep(0.1)
+        return results
+
+    async def _search_real_api(self, query: str, content_type: str = 'all') -> List[Dict[str, Any]]:
+        """Search YouTube using the real YouTube Data API v3"""
+        results = []
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Search for videos
+                search_url = f"{self.base_url}/search"
+                params = {
+                    'q': query,
+                    'part': 'snippet',
+                    'type': 'video',
+                    'maxResults': 10,
+                    'key': self.api_key,
+                    'relevanceLanguage': 'en'
+                }
+
+                async with session.get(search_url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+
+                        for item in data.get('items', []):
+                            snippet = item.get('snippet', {})
+                            video_id = item.get('id', {}).get('videoId')
+
+                            if video_id:
+                                results.append(self._format_result(
+                                    content_id=video_id,
+                                    title=snippet.get('title', 'Unknown'),
+                                    content_type='show',
+                                    description=snippet.get('description', ''),
+                                    poster=snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
+                                    imdb_rating=None,
+                                    release_year=None
+                                ))
+                    else:
+                        logger.error(f"YouTube API error: {response.status}")
+
+        except Exception as e:
+            logger.error(f"Error calling YouTube API: {e}")
+            raise
+
         return results
 
     async def get_details(self, content_id: str) -> Dict[str, Any]:
