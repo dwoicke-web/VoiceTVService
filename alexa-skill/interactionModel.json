@@ -1,0 +1,226 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "tv control",
+      "intents": [
+        {
+          "name": "TVCommandIntent",
+          "slots": [
+            {
+              "name": "command",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "do {command}",
+            "to {command}",
+            "please {command}",
+            "run {command}",
+            "execute {command}",
+            "I want {command}",
+            "can you {command}"
+          ]
+        },
+        {
+          "name": "PowerAllIntent",
+          "slots": [
+            {
+              "name": "action",
+              "type": "POWER_ACTION"
+            }
+          ],
+          "samples": [
+            "turn {action} all TVs",
+            "turn {action} all the TVs",
+            "turn {action} everything",
+            "power {action} all TVs",
+            "power {action} everything",
+            "power {action} all",
+            "TVs {action}",
+            "all TVs {action}"
+          ]
+        },
+        {
+          "name": "ResetAntennaIntent",
+          "slots": [
+            {
+              "name": "tv_name",
+              "type": "TV_NAME"
+            }
+          ],
+          "samples": [
+            "reset antenna",
+            "reset the antenna",
+            "reset all antennas",
+            "reset antenna on {tv_name}",
+            "reset {tv_name} to antenna",
+            "switch to antenna",
+            "switch {tv_name} to antenna",
+            "go to antenna",
+            "antenna mode"
+          ]
+        },
+        {
+          "name": "TuneChannelIntent",
+          "slots": [
+            {
+              "name": "channel_name",
+              "type": "CHANNEL_NAME"
+            },
+            {
+              "name": "tv_name",
+              "type": "TV_NAME"
+            }
+          ],
+          "samples": [
+            "tune to {channel_name}",
+            "tune in {channel_name}",
+            "put on {channel_name}",
+            "change to {channel_name}",
+            "go to {channel_name}",
+            "watch {channel_name}",
+            "turn on {channel_name}",
+            "turn to {channel_name}",
+            "switch to {channel_name}",
+            "tune to {channel_name} on {tv_name}",
+            "tune to {channel_name} on the {tv_name}",
+            "put on {channel_name} on {tv_name}",
+            "put on {channel_name} on the {tv_name}",
+            "watch {channel_name} on {tv_name}",
+            "watch {channel_name} on the {tv_name}",
+            "change to {channel_name} on {tv_name}",
+            "switch to {channel_name} on {tv_name}",
+            "turn {channel_name} on {tv_name}",
+            "I want to watch {channel_name}",
+            "can you put on {channel_name}"
+          ]
+        },
+        {
+          "name": "LaunchAppIntent",
+          "slots": [
+            {
+              "name": "app_name",
+              "type": "APP_NAME"
+            },
+            {
+              "name": "tv_name",
+              "type": "TV_NAME"
+            }
+          ],
+          "samples": [
+            "launch {app_name}",
+            "open {app_name}",
+            "start {app_name}",
+            "launch {app_name} on {tv_name}",
+            "open {app_name} on {tv_name}",
+            "start {app_name} on {tv_name}",
+            "launch {app_name} on the {tv_name}",
+            "open {app_name} on the {tv_name}"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "POWER_ACTION",
+          "values": [
+            { "name": { "value": "on" } },
+            { "name": { "value": "off" } }
+          ]
+        },
+        {
+          "name": "TV_NAME",
+          "values": [
+            { "name": { "value": "upper left", "synonyms": ["top left"] } },
+            { "name": { "value": "upper right", "synonyms": ["top right"] } },
+            { "name": { "value": "lower left", "synonyms": ["bottom left"] } },
+            { "name": { "value": "lower right", "synonyms": ["bottom right"] } },
+            { "name": { "value": "all", "synonyms": ["everything", "all TVs"] } }
+          ]
+        },
+        {
+          "name": "APP_NAME",
+          "values": [
+            { "name": { "value": "YouTube TV", "synonyms": ["youtube tv"] } },
+            { "name": { "value": "Netflix", "synonyms": ["netflix"] } },
+            { "name": { "value": "ESPN", "synonyms": ["e. s. p. n.", "espn plus"] } },
+            { "name": { "value": "Prime Video", "synonyms": ["amazon prime", "prime"] } },
+            { "name": { "value": "HBO Max", "synonyms": ["h. b. o.", "max", "h. b. o. max"] } },
+            { "name": { "value": "MLB", "synonyms": ["m. l. b.", "baseball", "mlb tv"] } },
+            { "name": { "value": "Disney Plus", "synonyms": ["disney", "disney+"] } },
+            { "name": { "value": "Hulu", "synonyms": ["hulu"] } },
+            { "name": { "value": "Peacock", "synonyms": ["peacock"] } },
+            { "name": { "value": "YouTube", "synonyms": ["youtube"] } },
+            { "name": { "value": "Vudu", "synonyms": ["vudu", "fandango"] } }
+          ]
+        },
+        {
+          "name": "CHANNEL_NAME",
+          "values": [
+            { "name": { "value": "ESPN", "synonyms": ["e. s. p. n."] } },
+            { "name": { "value": "ESPN2", "synonyms": ["e. s. p. n. 2", "espn two"] } },
+            { "name": { "value": "CBS", "synonyms": ["c. b. s."] } },
+            { "name": { "value": "NBC", "synonyms": ["n. b. c."] } },
+            { "name": { "value": "ABC", "synonyms": ["a. b. c."] } },
+            { "name": { "value": "FOX", "synonyms": ["fox channel"] } },
+            { "name": { "value": "Fox News", "synonyms": ["fox news channel"] } },
+            { "name": { "value": "CNN", "synonyms": ["c. n. n."] } },
+            { "name": { "value": "MSNBC", "synonyms": ["m. s. n. b. c."] } },
+            { "name": { "value": "TBS", "synonyms": ["t. b. s."] } },
+            { "name": { "value": "TNT", "synonyms": ["t. n. t."] } },
+            { "name": { "value": "USA Network", "synonyms": ["usa", "u. s. a. network"] } },
+            { "name": { "value": "FS1", "synonyms": ["fox sports 1", "fox sports", "f. s. 1"] } },
+            { "name": { "value": "FS2", "synonyms": ["fox sports 2", "f. s. 2"] } },
+            { "name": { "value": "Bravo", "synonyms": ["bravo channel"] } },
+            { "name": { "value": "HGTV", "synonyms": ["h. g. t. v."] } },
+            { "name": { "value": "Food Network", "synonyms": ["food channel"] } },
+            { "name": { "value": "Discovery", "synonyms": ["discovery channel"] } },
+            { "name": { "value": "History", "synonyms": ["history channel"] } },
+            { "name": { "value": "Comedy Central", "synonyms": ["comedy channel"] } },
+            { "name": { "value": "Nickelodeon", "synonyms": ["nick"] } },
+            { "name": { "value": "Cartoon Network", "synonyms": ["cartoon"] } },
+            { "name": { "value": "Disney Channel", "synonyms": ["disney channel"] } },
+            { "name": { "value": "FX", "synonyms": ["f. x."] } },
+            { "name": { "value": "AMC", "synonyms": ["a. m. c."] } },
+            { "name": { "value": "Syfy", "synonyms": ["sci fi", "sci-fi"] } },
+            { "name": { "value": "NFL Network", "synonyms": ["n. f. l. network"] } },
+            { "name": { "value": "MLB Network", "synonyms": ["m. l. b. network"] } },
+            { "name": { "value": "NBA TV", "synonyms": ["n. b. a. t. v.", "n. b. a. tv"] } },
+            { "name": { "value": "SEC Network", "synonyms": ["s. e. c. network"] } },
+            { "name": { "value": "Big Ten Network", "synonyms": ["big 10 network", "b. t. n."] } },
+            { "name": { "value": "ACC Network", "synonyms": ["a. c. c. network"] } },
+            { "name": { "value": "Golf Channel", "synonyms": ["golf"] } },
+            { "name": { "value": "Freeform", "synonyms": ["free form"] } },
+            { "name": { "value": "A&E", "synonyms": ["a. and e.", "a and e"] } },
+            { "name": { "value": "TLC", "synonyms": ["t. l. c."] } },
+            { "name": { "value": "National Geographic", "synonyms": ["nat geo"] } },
+            { "name": { "value": "PBS", "synonyms": ["p. b. s."] } },
+            { "name": { "value": "The CW", "synonyms": ["c. w.", "cw"] } },
+            { "name": { "value": "Newsmax", "synonyms": ["news max"] } },
+            { "name": { "value": "Hallmark Channel", "synonyms": ["hallmark"] } },
+            { "name": { "value": "Lifetime", "synonyms": ["life time"] } },
+            { "name": { "value": "MTV", "synonyms": ["m. t. v."] } },
+            { "name": { "value": "BET", "synonyms": ["b. e. t."] } },
+            { "name": { "value": "ESPNews", "synonyms": ["espn news"] } },
+            { "name": { "value": "ESPNU", "synonyms": ["espn u"] } }
+          ]
+        }
+      ]
+    }
+  }
+}

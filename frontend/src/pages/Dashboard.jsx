@@ -3,6 +3,7 @@ import axios from 'axios';
 import TVLayout from '../components/TVLayout';
 import SearchBar from '../components/SearchBar';
 import ResultsList from '../components/ResultsList';
+import VoiceControl from '../components/VoiceControl';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -125,6 +126,14 @@ const Dashboard = () => {
     }
   };
 
+  const handleVoiceCommand = (result) => {
+    console.log('Voice command result:', result);
+    // Refresh TV states if power command was executed
+    if (result.parsed_intent === 'control_power' || result.parsed_intent === 'reset_antenna') {
+      fetchTVs();
+    }
+  };
+
   const handleResetChannel = async (tv) => {
     // Map TV IDs to their antenna channels
     const channelMap = {
@@ -208,6 +217,8 @@ const Dashboard = () => {
           ⏹️ Power Off All
         </button>
       </div>
+
+      <VoiceControl onCommandExecuted={handleVoiceCommand} />
 
       {selectedTV && (
         <div className="app-launcher">

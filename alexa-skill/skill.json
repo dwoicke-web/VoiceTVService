@@ -1,0 +1,33 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "summary": "Control basement TVs with voice commands",
+          "examplePhrases": [
+            "Alexa, tell TV Control to turn on all TVs",
+            "Alexa, ask TV Control to launch Netflix",
+            "Alexa, tell TV Control to reset antenna"
+          ],
+          "name": "TV Control",
+          "description": "Control your basement entertainment system. Power on/off Fire TVs, launch streaming apps on Roku, reset to antenna, and search for content."
+        }
+      }
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "https://remote.dwoicke.com/api/alexa/skill"
+        }
+      }
+    },
+    "manifestVersion": "1.0",
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false
+    }
+  }
+}

@@ -8,6 +8,7 @@ import asyncio
 import aiohttp
 import logging
 from typing import Dict, Any, Optional
+from urllib.parse import quote
 from . import TVDevice
 
 logger = logging.getLogger(__name__)
@@ -92,12 +93,43 @@ class RokuClient:
                 url = f"{url}?{query_string}"
 
             async with self.session.post(url, timeout=aiohttp.ClientTimeout(total=self.timeout)) as resp:
-                return resp.status in [200, 204]
+                success = resp.status in [200, 204]
+                if not success:
+                    logger.warning(f"Launch app {app_id} on {self.ip} returned status {resp.status}")
+                else:
+                    logger.info(f"Launch app {app_id} on {self.ip} succeeded (status {resp.status})")
+                return success
         except asyncio.TimeoutError:
             logger.error(f"Launch app timeout on {self.ip}")
             return False
         except Exception as e:
             logger.error(f"Launch app error on {self.ip}: {e}")
+            return False
+
+    async def search_browse(self, keyword: str, launch: bool = True) -> bool:
+        """Use Roku's built-in search to find and optionally launch content
+
+        Args:
+            keyword: Search keyword (e.g., 'ESPN', 'CNN', 'Fox News')
+            launch: If True, auto-launch the first result
+        """
+        try:
+            await self.ensure_session()
+
+            # URL-encode the keyword to handle spaces and special characters
+            encoded_keyword = quote(keyword)
+            params = f"keyword={encoded_keyword}"
+            if launch:
+                params += "&launch=true"
+            url = f"{self.base_url}/search/browse?{params}"
+            logger.debug(f"Roku search URL: {url}")
+            async with self.session.post(url, timeout=aiohttp.ClientTimeout(total=self.timeout)) as resp:
+                return resp.status in [200, 204]
+        except asyncio.TimeoutError:
+            logger.error(f"Search browse timeout on {self.ip}")
+            return False
+        except Exception as e:
+            logger.error(f"Search browse error on {self.ip}: {e}")
             return False
 
     async def get_device_info(self) -> Optional[Dict[str, str]]:
@@ -193,7 +225,7 @@ class RokuDevice(TVDevice):
             'Vudu': '2285',         # Vudu (not found on devices, fallback to navigation)
             'Netflix': '12',        # Netflix (verified - all devices)
             'Hulu': '2285',         # Hulu (verified - Upper Left & Lower Right have it)
-            'MLB': '43594',         # MLB.TV app
+            'MLB': '14',            # MLB app (verified - app id 14)
             'Disney+': '291097',    # Disney+ app
         }
 
@@ -438,6 +470,146 @@ class RokuDevice(TVDevice):
             return {
                 'status': 'error',
                 'message': f'Failed to launch {app_name}',
+                'device_id': self.device_id,
+                'error': str(e)
+            }
+
+    async def tune_channel(self, channel_name: str) -> Dict[str, Any]:
+        """Tune to a specific channel on YouTube TV via Roku search
+
+        Uses Roku's built-in search to find and tune to live TV channels.
+        This launches YouTube TV and uses ECP keypresses to search for the channel.
+
+        Args:
+            channel_name: Name of the channel (e.g., 'ESPN', 'CBS', 'Fox News')
+        """
+        if not self.device_ip:
+            return {
+                'status': 'success',
+                'message': f'Mock: Tuning to {channel_name} on {self.device_name}',
+                'device_id': self.device_id,
+                'channel': channel_name
+            }
+
+        try:
+            if not await self._ensure_connected():
+                return {
+                    'status': 'error',
+                    'message': f'Cannot connect to {self.device_name}',
+                    'device_id': self.device_id
+                }
+
+            # Use Roku's built-in search/browse endpoint to pre-fill search
+            logger.info(f"Using Roku search to find '{channel_name}' on {self.device_name}")
+            success = await self.roku_client.search_browse(channel_name, launch=True)
+            if not success:
+                return {
+                    'status': 'error',
+                    'message': f'Roku search failed for {channel_name} on {self.device_name}',
+                    'device_id': self.device_id
+                }
+
+            # Wait for search results to populate
+            await asyncio.sleep(2)
+
+            # Roku search screen: keyboard on the left, results on the right
+            # Press Right to move from the keyboard to the results panel
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+
+            # Select the first result to launch it
+            await self.roku_client.send_keypress('Select')
+            await asyncio.sleep(1)
+
+            logger.info(f"Tuned to {channel_name} on {self.device_name}")
+
+            return {
+                'status': 'success',
+                'message': f'Tuning to {channel_name} on {self.device_name}',
+                'device_id': self.device_id,
+                'device_name': self.device_name,
+                'device_type': self.device_type,
+                'channel': channel_name,
+                'app': 'YouTubeTV',
+                'is_connected': True
+            }
+        except Exception as e:
+            logger.error(f"Failed to tune channel on {self.device_name}: {e}")
+            return {
+                'status': 'error',
+                'message': f'Failed to tune to {channel_name}',
+                'device_id': self.device_id,
+                'error': str(e)
+            }
+
+    async def search_content(self, keyword: str) -> Dict[str, Any]:
+        """Search for content on Roku using the built-in search/browse
+
+        Uses Roku's search to find any content (shows, movies, sports events, etc.)
+        and navigates to the first result. Works for generic queries like
+        "March Madness", "Lakers game", etc.
+
+        Args:
+            keyword: Search keyword (e.g., 'March Madness', 'Breaking Bad')
+        """
+        if not self.device_ip:
+            return {
+                'status': 'success',
+                'message': f'Mock: Searching for {keyword} on {self.device_name}',
+                'device_id': self.device_id,
+                'keyword': keyword
+            }
+
+        try:
+            if not await self._ensure_connected():
+                return {
+                    'status': 'error',
+                    'message': f'Cannot connect to {self.device_name}',
+                    'device_id': self.device_id
+                }
+
+            logger.info(f"Roku search for '{keyword}' on {self.device_name}")
+            success = await self.roku_client.search_browse(keyword, launch=True)
+            if not success:
+                return {
+                    'status': 'error',
+                    'message': f'Roku search failed for {keyword} on {self.device_name}',
+                    'device_id': self.device_id
+                }
+
+            # Wait for search results to populate
+            await asyncio.sleep(2)
+
+            # Navigate from keyboard to results panel (Right x3) and select first result
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+            await self.roku_client.send_keypress('Right')
+            await asyncio.sleep(0.5)
+            await self.roku_client.send_keypress('Select')
+            await asyncio.sleep(1)
+
+            logger.info(f"Selected first search result for '{keyword}' on {self.device_name}")
+
+            return {
+                'status': 'success',
+                'message': f'Searching for {keyword} on {self.device_name}',
+                'device_id': self.device_id,
+                'device_name': self.device_name,
+                'device_type': self.device_type,
+                'keyword': keyword,
+                'is_connected': True
+            }
+        except Exception as e:
+            logger.error(f"Failed to search on {self.device_name}: {e}")
+            return {
+                'status': 'error',
+                'message': f'Failed to search for {keyword}',
                 'device_id': self.device_id,
                 'error': str(e)
             }

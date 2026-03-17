@@ -1,72 +1,34 @@
 """
-Voice control routes - Handle voice commands and speech-to-text processing
+Voice control routes - Handle voice commands via Web Speech API transcripts
+Executes commands on Fire TVs and Roku devices, provides Sonos TTS feedback
 """
 
 import asyncio
-import sys
 import os
-import json
 import logging
 from flask import Blueprint, request, jsonify
-
-# Ensure correct Python path for imports
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
-
-from apis.voice.speech_processor import get_speech_processor
 from apis.voice.command_parser import get_command_parser
 from apis.sonos import get_sonos_manager
-from apis.tv_control import get_tv_manager
-from apis.tv_control.smartthings import SamsungSmartThingsDevice
 from apis.tv_control.fire_tv import FireTVDevice
-from logging_config import get_logger
+from apis.tv_control.roku import RokuDevice
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
 
-
-def _initialize_tv_devices_for_voice():
-    """Initialize TV devices for voice control"""
-    manager = get_tv_manager()
-
-    # Only initialize once
-    if len(manager.devices) > 0:
-        return manager
-
-    # Create Samsung TV device
-    samsung_tv = SamsungSmartThingsDevice(
-        device_id='big_screen',
-        device_name='Big Screen',
-        smartthings_token=os.environ.get('SMARTTHINGS_TOKEN')
-    )
-    manager.register_device(samsung_tv)
-
-    # Create Fire TV devices
-    fire_tv_positions = [
-        ('upper_left', 'Upper Left'),
-        ('upper_right', 'Upper Right'),
-        ('lower_left', 'Lower Left'),
-        ('lower_right', 'Lower Right')
-    ]
-
-    for device_id, device_name in fire_tv_positions:
-        fire_tv = FireTVDevice(
-            device_id=device_id,
-            device_name=device_name,
-            device_ip=os.environ.get(f'FIRETV_{device_id.upper()}_IP')
-        )
-        manager.register_device(fire_tv)
-
-    return manager
+# Fire TV device configs
+FIRE_TVS = {
+    'upper_left': {'name': 'Upper Left', 'ip': '192.168.4.80', 'channel': 7},
+    'upper_right': {'name': 'Upper Right', 'ip': '192.168.4.78', 'channel': 10},
+    'lower_left': {'name': 'Lower Left', 'ip': '192.168.4.93', 'channel': 8},
+    'lower_right': {'name': 'Lower Right', 'ip': '192.168.4.108', 'channel': 11},
+}
 
 
 def _get_or_create_event_loop():
-    """Get or create event loop for async operations"""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
-            raise RuntimeError("Event loop is closed")
+            raise RuntimeError
         return loop
     except RuntimeError:
         loop = asyncio.new_event_loop()
@@ -74,299 +36,328 @@ def _get_or_create_event_loop():
         return loop
 
 
-@voice_bp.route('/transcribe', methods=['POST'])
-def transcribe_audio():
-    """
-    Transcribe audio to text
-    Request body:
-        - audio_file: Audio file (multipart/form-data) OR
-        - audio_data: Base64 encoded audio data
-    """
-    try:
-        processor = get_speech_processor()
-        loop = _get_or_create_event_loop()
+def _get_fire_tv(tv_id: str) -> FireTVDevice:
+    """Get a Fire TV device by ID"""
+    config = FIRE_TVS.get(tv_id)
+    if not config:
+        return None
+    return FireTVDevice(
+        device_id=tv_id,
+        device_name=config['name'],
+        device_ip=config['ip']
+    )
 
-        # Handle file upload
-        if 'audio_file' in request.files:
-            audio_file = request.files['audio_file']
-            # In real implementation, would save and transcribe
-            # For now, use mock transcription
-            result = loop.run_until_complete(processor.transcribe_audio('mock.wav'))
-        else:
-            # Handle raw audio data
-            audio_data = request.get_json().get('audio_data')
-            if not audio_data:
-                return jsonify({'error': 'No audio data provided'}), 400
 
-            result = loop.run_until_complete(processor.transcribe_stream(audio_data.encode()))
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        logger.error(f"Error transcribing audio: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Transcription failed',
-            'message': str(e)
-        }), 500
+def _get_roku(tv_id: str) -> RokuDevice:
+    """Get a Roku device by TV ID"""
+    roku_ip = os.environ.get(f'ROKU_{tv_id.upper()}_IP')
+    if not roku_ip:
+        return None
+    config = FIRE_TVS.get(tv_id, {})
+    return RokuDevice(
+        device_id=f'{tv_id}_roku',
+        device_name=f'{config.get("name", tv_id)} Roku',
+        device_ip=roku_ip,
+        channel=config.get('channel', 0)
+    )
 
 
 @voice_bp.route('/command', methods=['POST'])
 def process_voice_command():
     """
-    Process a voice command
-    Request body:
-        - transcript: Transcribed text OR
-        - audio_file: Audio file to transcribe and process
+    Process a voice command from the web UI.
+    Expects JSON: { "transcript": "turn on all the TVs" }
+    Parses the command, executes it, and returns the result.
+    Optionally speaks feedback on Sonos.
     """
     try:
-        data = request.get_json() if request.is_json else {}
-        transcript = data.get('transcript')
-
-        # If transcript not provided, transcribe audio first
-        if not transcript:
-            processor = get_speech_processor()
-            loop = _get_or_create_event_loop()
-
-            if 'audio_file' in request.files:
-                audio_file = request.files['audio_file']
-                transcribe_result = loop.run_until_complete(processor.transcribe_audio('mock.wav'))
-                transcript = transcribe_result.get('transcript')
-            else:
-                return jsonify({'error': 'Provide transcript or audio_file'}), 400
+        data = request.get_json()
+        transcript = data.get('transcript', '').strip()
 
         if not transcript:
-            return jsonify({'error': 'Could not transcribe audio'}), 400
+            return jsonify({'error': 'No transcript provided'}), 400
 
         # Parse command
         parser = get_command_parser()
         command = parser.parse_command(transcript)
+        intent = command.get('intent')
 
-        return jsonify({
-            'status': 'success',
-            'transcript': transcript,
-            'command': command
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error processing voice command: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Command processing failed',
-            'message': str(e)
-        }), 500
-
-
-@voice_bp.route('/execute', methods=['POST'])
-def execute_voice_command():
-    """
-    Execute a parsed voice command
-    Request body:
-        - transcript: Original voice command text
-        - intent: Command intent (play_content, search, etc.)
-        - content_name: Content to play (for play commands)
-        - tv_id: Target TV (for play commands)
-        - service: Streaming service (for play commands)
-        - query: Search query (for search commands)
-    """
-    try:
-        data = request.get_json()
-        intent = data.get('intent')
-        transcript = data.get('transcript', '')
-
-        # Parse if only transcript provided
-        if not intent and transcript:
-            parser = get_command_parser()
-            command = parser.parse_command(transcript)
-            intent = command.get('intent')
-            data.update(command)
+        logger.info(f"Voice command: '{transcript}' -> intent={intent}, command={command}")
 
         loop = _get_or_create_event_loop()
-        result = {'status': 'error', 'message': 'Unknown intent'}
+        result = {'status': 'error', 'message': 'Unknown command'}
 
-        if intent == 'play_content':
-            result = _execute_play_command(data, loop)
+        if intent == 'control_power':
+            result = _execute_power(command, loop)
+        elif intent == 'reset_antenna':
+            result = _execute_reset_antenna(command, loop)
+        elif intent == 'tune_channel':
+            result = _execute_tune_channel(command, loop)
+        elif intent == 'launch_app':
+            result = _execute_launch_app(command, loop)
+        elif intent == 'play_content':
+            result = _execute_play(command, loop)
         elif intent == 'search':
-            result = _execute_search_command(data, loop)
+            result = _execute_search(command, loop)
         elif intent == 'control_volume':
-            result = _execute_volume_command(data, loop)
-        elif intent == 'control_power':
-            result = _execute_power_command(data, loop)
+            result = command  # Volume handled client-side or mock
+            result['status'] = 'success'
 
-        # Provide voice feedback
-        sonos = get_sonos_manager()
-        sonos_device = sonos.get_device('living_room_sonos')
+        # Add voice response
+        voice_response = result.get('voice_response', command.get('voice_response', ''))
+        result['voice_response'] = voice_response
+        result['transcript'] = transcript
+        result['parsed_intent'] = intent
 
-        if sonos_device and result.get('status') == 'success':
-            feedback_text = result.get('voice_response', f"Done. {result.get('message', '')}")
-            loop.run_until_complete(sonos_device.speak(feedback_text))
+        # Speak feedback on Sonos (non-blocking)
+        speak_feedback = data.get('speak_feedback', True)
+        if speak_feedback and voice_response:
+            try:
+                sonos = get_sonos_manager()
+                loop.run_until_complete(sonos.speak(voice_response, volume=35))
+            except Exception as e:
+                logger.warning(f"Sonos TTS failed: {e}")
 
         return jsonify(result), 200 if result.get('status') == 'success' else 400
 
     except Exception as e:
-        logger.error(f"Error executing voice command: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Command execution failed',
-            'message': str(e)
-        }), 500
+        logger.error(f"Voice command error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
-def _execute_play_command(data: dict, loop) -> dict:
-    """Execute a play content command"""
-    content_name = data.get('content_name')
-    tv_id = data.get('tv_id')
-    service = data.get('service')
+def _execute_power(command: dict, loop) -> dict:
+    """Execute power on/off command"""
+    action = command.get('action', 'on')
+    tv_id = command.get('tv_id')
 
-    if not content_name or not tv_id:
+    if tv_id == 'all':
+        # Power all Fire TVs in parallel
+        async def power_all():
+            tasks = []
+            for tid in FIRE_TVS:
+                device = _get_fire_tv(tid)
+                if device:
+                    if action == 'on':
+                        tasks.append(asyncio.wait_for(device.power_on(), timeout=30))
+                    else:
+                        tasks.append(asyncio.wait_for(device.power_off(), timeout=30))
+            return await asyncio.gather(*tasks, return_exceptions=True)
+
+        results = loop.run_until_complete(power_all())
+        successes = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'success')
         return {
-            'status': 'error',
-            'message': 'Content name and TV required'
+            'status': 'success',
+            'message': f'{successes}/4 TVs powered {action}',
+            'devices_affected': successes,
+            'voice_response': f"All TVs are now {'on' if action == 'on' else 'off'}"
         }
-
-    tv_manager = _initialize_tv_devices_for_voice()
-
-    device = tv_manager.get_device(tv_id)
-    if not device:
-        return {
-            'status': 'error',
-            'message': f'TV {tv_id} not found'
-        }
-
-    # Use service if specified, otherwise search for content
-    if service:
-        result = loop.run_until_complete(device.launch_app(service, content_name))
+    elif tv_id:
+        device = _get_fire_tv(tv_id)
+        if not device:
+            return {'status': 'error', 'message': f'TV {tv_id} not found'}
+        if action == 'on':
+            result = loop.run_until_complete(device.power_on())
+        else:
+            result = loop.run_until_complete(device.power_off())
+        result['voice_response'] = f"{device.device_name} is now {action}"
+        return result
     else:
-        result = loop.run_until_complete(device.launch_app('YouTube TV', content_name))
+        return {'status': 'error', 'message': 'Which TV? Say "all" or a specific TV name'}
 
-    result['voice_response'] = f"Now playing {content_name} on {device.device_name}"
+
+def _execute_reset_antenna(command: dict, loop) -> dict:
+    """Execute reset to antenna input"""
+    tv_id = command.get('tv_id')
+
+    if tv_id == 'all' or not tv_id:
+        # Reset all
+        async def reset_all():
+            tasks = []
+            for tid, config in FIRE_TVS.items():
+                device = _get_fire_tv(tid)
+                if device:
+                    tasks.append(asyncio.wait_for(
+                        device.reset_channel(config['channel']), timeout=30
+                    ))
+            return await asyncio.gather(*tasks, return_exceptions=True)
+
+        results = loop.run_until_complete(reset_all())
+        successes = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'success')
+        return {
+            'status': 'success',
+            'message': f'{successes}/4 TVs reset to antenna',
+            'voice_response': 'All TVs reset to antenna'
+        }
+    else:
+        device = _get_fire_tv(tv_id)
+        config = FIRE_TVS.get(tv_id, {})
+        if not device:
+            return {'status': 'error', 'message': f'TV {tv_id} not found'}
+        result = loop.run_until_complete(device.reset_channel(config.get('channel', 0)))
+        result['voice_response'] = f"{device.device_name} reset to antenna"
+        return result
+
+
+def _execute_tune_channel(command: dict, loop) -> dict:
+    """Tune to a channel on YouTube TV via Roku"""
+    channel = command.get('channel')
+    tv_id = command.get('tv_id')
+
+    if not channel:
+        return {'status': 'error', 'message': 'Which channel?', 'voice_response': 'Which channel should I tune to?'}
+
+    # If no TV specified, use upper_left as default
+    if not tv_id:
+        tv_id = 'upper_left'
+
+    roku = _get_roku(tv_id)
+    if roku:
+        result = loop.run_until_complete(roku.tune_channel(channel))
+        result['voice_response'] = f"Tuning to {channel} on {FIRE_TVS.get(tv_id, {}).get('name', tv_id)}"
+        return result
+    else:
+        return {
+            'status': 'error',
+            'message': f'No Roku configured for {tv_id}',
+            'voice_response': f"Cannot find Roku for {tv_id.replace('_', ' ')}"
+        }
+
+
+def _execute_launch_app(command: dict, loop) -> dict:
+    """Launch a streaming app on a Roku device"""
+    service = command.get('service')
+    tv_id = command.get('tv_id')
+
+    if not service:
+        return {'status': 'error', 'message': 'Which app?'}
+
+    # If no TV specified, use upper_left as default
+    if not tv_id:
+        tv_id = 'upper_left'
+
+    roku = _get_roku(tv_id)
+    if roku:
+        result = loop.run_until_complete(roku.launch_app(service))
+        result['voice_response'] = f"Launching {service} on {FIRE_TVS.get(tv_id, {}).get('name', tv_id)}"
+        return result
+    else:
+        return {
+            'status': 'error',
+            'message': f'No Roku configured for {tv_id}',
+            'voice_response': f"Cannot find Roku for {tv_id.replace('_', ' ')}"
+        }
+
+
+def _execute_play(command: dict, loop) -> dict:
+    """Execute play content - routes to MLB app for baseball teams, Roku search for generic content"""
+    content_name = command.get('content_name')
+    tv_id = command.get('tv_id')
+    service = command.get('service')
+    mlb_team = command.get('mlb_team')
+
+    if not content_name:
+        return {'status': 'error', 'message': 'What should I play?'}
+    if not tv_id:
+        tv_id = 'upper_left'
+
+    roku = _get_roku(tv_id)
+    if not roku:
+        return {'status': 'error', 'message': f'No Roku for {tv_id}'}
+
+    tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
+
+    # MLB team detected → launch MLB app directly
+    if service == 'MLB' or mlb_team:
+        result = loop.run_until_complete(roku.launch_app('MLB'))
+        result['voice_response'] = f"Opening MLB for {mlb_team or content_name} on {tv_name}"
+        return result
+
+    # Known streaming service → launch that app
+    if service:
+        result = loop.run_until_complete(roku.launch_app(service, content_id=content_name, title=content_name))
+        result['voice_response'] = f"Playing {content_name} on {tv_name}"
+        return result
+
+    # Generic content → use Roku search/browse to find it
+    result = loop.run_until_complete(roku.search_content(content_name))
+    result['voice_response'] = f"Searching for {content_name} on {tv_name}"
     return result
 
 
-def _execute_search_command(data: dict, loop) -> dict:
-    """Execute a search command"""
-    query = data.get('query')
-
+def _execute_search(command: dict, loop) -> dict:
+    """Execute a content search"""
+    query = command.get('query')
     if not query:
-        return {
-            'status': 'error',
-            'message': 'Search query required'
-        }
+        return {'status': 'error', 'message': 'What should I search for?'}
 
-    # In real implementation, would call search API
+    # Use the search aggregator
+    from apis.search import get_search_aggregator
+    aggregator = get_search_aggregator()
+    results = loop.run_until_complete(aggregator.search(query))
+
+    total = results.get('total', 0)
+    top_results = results.get('results', [])[:3]
+    titles = [r.get('title', '') for r in top_results]
+
+    voice = f"Found {total} results for {query}."
+    if titles:
+        voice += f" Top result: {titles[0]}."
+
     return {
         'status': 'success',
-        'message': f'Searching for {query}',
-        'voice_response': f'Searching for {query}'
+        'message': f'Found {total} results',
+        'total': total,
+        'top_results': top_results,
+        'voice_response': voice
     }
-
-
-def _execute_volume_command(data: dict, loop) -> dict:
-    """Execute a volume control command"""
-    tv_id = data.get('tv_id')
-    level = data.get('level')
-    action = data.get('action')
-
-    if not tv_id:
-        return {
-            'status': 'error',
-            'message': 'TV ID required'
-        }
-
-    tv_manager = _initialize_tv_devices_for_voice()
-    device = tv_manager.get_device(tv_id)
-
-    if not device:
-        return {
-            'status': 'error',
-            'message': f'TV {tv_id} not found'
-        }
-
-    if level is not None:
-        result = loop.run_until_complete(device.set_volume(level))
-        result['voice_response'] = f"Volume set to {level} percent"
-    else:
-        result = {
-            'status': 'success',
-            'message': f'Volume {action}'
-        }
-        result['voice_response'] = f"Volume turned {action}"
-
-    return result
-
-
-def _execute_power_command(data: dict, loop) -> dict:
-    """Execute a power control command"""
-    tv_id = data.get('tv_id')
-    action = data.get('action')
-
-    if not tv_id or not action:
-        return {
-            'status': 'error',
-            'message': 'TV ID and action required'
-        }
-
-    tv_manager = _initialize_tv_devices_for_voice()
-    device = tv_manager.get_device(tv_id)
-
-    if not device:
-        return {
-            'status': 'error',
-            'message': f'TV {tv_id} not found'
-        }
-
-    if action == 'on':
-        result = loop.run_until_complete(device.power_on())
-        result['voice_response'] = f"{device.device_name} is now on"
-    else:
-        result = loop.run_until_complete(device.power_off())
-        result['voice_response'] = f"{device.device_name} is now off"
-
-    return result
 
 
 @voice_bp.route('/sonos/status', methods=['GET'])
 def get_sonos_status():
-    """Get status of Sonos speakers"""
+    """Get status of all Sonos speakers"""
     try:
         sonos = get_sonos_manager()
-        devices = sonos.get_all_devices()
-
-        statuses = {}
         loop = _get_or_create_event_loop()
-
-        for device_id, device in devices.items():
-            status = loop.run_until_complete(device.get_status())
-            statuses[device_id] = status
-
-        return jsonify({
-            'status': 'success',
-            'devices': statuses,
-            'total_devices': len(statuses)
-        }), 200
-
+        statuses = {}
+        for device_id, device in sonos.get_all_devices().items():
+            statuses[device_id] = loop.run_until_complete(device.get_status())
+        return jsonify({'status': 'success', 'devices': statuses}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @voice_bp.route('/sonos/speak', methods=['POST'])
 def sonos_speak():
-    """Make Sonos speaker speak text"""
+    """Make Sonos Beam speak text"""
     try:
         data = request.get_json()
-        device_id = data.get('device_id', 'living_room_sonos')
         text = data.get('text')
-
         if not text:
             return jsonify({'error': 'Text required'}), 400
 
         sonos = get_sonos_manager()
-        device = sonos.get_device(device_id)
-
-        if not device:
-            return jsonify({'error': f'Device {device_id} not found'}), 404
-
         loop = _get_or_create_event_loop()
-        result = loop.run_until_complete(device.speak(text))
-
+        result = loop.run_until_complete(sonos.speak(text))
         return jsonify(result), 200
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@voice_bp.route('/test', methods=['GET'])
+def test_voice():
+    """Test voice command parsing"""
+    test_commands = [
+        "turn on all the TVs",
+        "power off everything",
+        "reset antenna on upper left",
+        "launch Netflix on lower right",
+        "play Breaking Bad on upper left",
+        "search for Lakers",
+        "open ESPN on upper right",
+    ]
+    parser = get_command_parser()
+    results = []
+    for cmd in test_commands:
+        parsed = parser.parse_command(cmd)
+        results.append({'input': cmd, 'parsed': parsed})
+    return jsonify({'tests': results}), 200
