@@ -3,6 +3,7 @@ TV Control routes - Control TV devices and launch content
 """
 
 import asyncio
+import json
 import sys
 import os
 import logging
@@ -371,6 +372,70 @@ def power_all():
         }), 500
 
 
+@tv_control_bp.route('/tune', methods=['POST'])
+def tune_channel():
+    """
+    Tune to a YouTube TV channel on a specific TV
+    Request body:
+        - tv_id: TV identifier (upper_left, upper_right, lower_left, lower_right)
+        - channel: Channel name (e.g., 'ESPN', 'Fox News', 'CNN')
+
+    Uses the YouTube TV internal search approach:
+      1. Launch YouTube TV
+      2. Navigate to Search tab (Right×3 → Select)
+      3. Type channel name via Lit_ keypresses
+      4. Select first result
+    """
+    data = request.get_json()
+
+    tv_id = data.get('tv_id')
+    channel = data.get('channel')
+
+    if not tv_id or not channel:
+        return jsonify({'error': 'Missing required fields: tv_id, channel'}), 400
+
+    try:
+        manager = _initialize_tv_devices()
+
+        # Get the corresponding Roku device
+        roku_id = f'{tv_id}_roku'
+        roku_device = manager.get_device(roku_id)
+        if not roku_device:
+            return jsonify({
+                'error': f'Roku device {roku_id} not found',
+                'available_devices': list(manager.devices.keys())
+            }), 404
+
+        # Run tune_channel in background thread so API responds immediately
+        # (tune_channel takes 15+ seconds with YouTube TV launch + search navigation)
+        import threading
+        def _bg_tune():
+            try:
+                bg_loop = asyncio.new_event_loop()
+                bg_loop.run_until_complete(roku_device.tune_channel(channel))
+                bg_loop.close()
+            except Exception as e:
+                logger.error(f"Background tune_channel error: {e}")
+
+        thread = threading.Thread(target=_bg_tune, daemon=True)
+        thread.start()
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Tuning to {channel} on {roku_device.device_name}',
+            'tv_id': tv_id,
+            'channel': channel,
+            'note': 'Channel tuning started in background'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error tuning channel - tv_id: {tv_id}, channel: {channel}: {e}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to tune channel',
+            'message': str(e)
+        }), 500
+
+
 @tv_control_bp.route('/reset-channel', methods=['POST'])
 def reset_channel():
     """Reset Fire TV to antenna input and tune to specified channel"""
@@ -424,3 +489,102 @@ def reset_channel():
             'error': 'Failed to reset channel',
             'message': str(e)
         }), 500
+
+
+# --- YouTube TV Channel Mappings ---
+
+@tv_control_bp.route('/ytv-channels', methods=['GET'])
+def get_ytv_channels():
+    """Get all YouTube TV channel→videoId mappings"""
+    from apis.tv_control.ytv_channels import get_mapper
+    mapper = get_mapper()
+    return jsonify(mapper.get_all_mappings()), 200
+
+
+@tv_control_bp.route('/ytv-channels/upload', methods=['POST'])
+def upload_ytv_browse_json():
+    """Upload browse.json from YouTube TV DevTools to refresh channel mappings.
+
+    Accepts either:
+      - JSON body (the browse.json content directly)
+      - Form file upload with field name 'file'
+    """
+    from apis.tv_control.ytv_channels import get_mapper
+    mapper = get_mapper()
+
+    try:
+        # Try JSON body first
+        if request.is_json:
+            browse_data = request.get_json()
+        elif 'file' in request.files:
+            file = request.files['file']
+            browse_data = json.loads(file.read().decode('utf-8'))
+        else:
+            return jsonify({'error': 'Send browse.json as JSON body or file upload'}), 400
+
+        count = mapper.parse_browse_json(browse_data)
+
+        if count == 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'No channels found in browse.json. Make sure you copied the full response from the browse API call in DevTools.'
+            }), 400
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Extracted {count} channel mappings',
+            'count': count,
+            'updated_at': mapper.updated_at,
+            'channels': mapper.mappings
+        }), 200
+
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON'}), 400
+    except Exception as e:
+        logger.error(f"Error processing browse.json upload: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@tv_control_bp.route('/ytv-channels/test/<channel_name>', methods=['POST'])
+def test_ytv_deep_link(channel_name):
+    """Test deep linking to a YouTube TV channel on a specific Roku.
+
+    Query params:
+      - tv_id: TV position (upper_left, upper_right, etc.)
+    """
+    from apis.tv_control.ytv_channels import get_mapper
+    mapper = get_mapper()
+
+    tv_id = request.args.get('tv_id', 'upper_right')
+    video_id = mapper.get_video_id(channel_name)
+
+    if not video_id:
+        return jsonify({
+            'status': 'error',
+            'message': f'No videoId mapping for "{channel_name}". Upload browse.json first.',
+            'available_channels': list(mapper.mappings.keys())
+        }), 404
+
+    try:
+        manager = _initialize_tv_devices()
+        roku_id = f'{tv_id}_roku'
+        roku_device = manager.get_device(roku_id)
+
+        if not roku_device:
+            return jsonify({'error': f'Roku device {roku_id} not found'}), 404
+
+        loop = _get_or_create_event_loop()
+        success = loop.run_until_complete(
+            roku_device.roku_client.launch_app('195316', params={'contentId': video_id, 'mediaType': 'live'})
+        )
+
+        return jsonify({
+            'status': 'success' if success else 'error',
+            'channel': channel_name,
+            'video_id': video_id,
+            'tv_id': tv_id,
+            'message': f'Deep linked {channel_name} on {tv_id}' if success else 'Launch failed'
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

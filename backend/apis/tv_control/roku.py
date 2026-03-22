@@ -106,12 +106,17 @@ class RokuClient:
             logger.error(f"Launch app error on {self.ip}: {e}")
             return False
 
-    async def search_browse(self, keyword: str, launch: bool = True) -> bool:
+    async def search_browse(self, keyword: str, launch: bool = True,
+                              content_type: str = None, provider_id: str = None,
+                              match_any: bool = False) -> bool:
         """Use Roku's built-in search to find and optionally launch content
 
         Args:
             keyword: Search keyword (e.g., 'ESPN', 'CNN', 'Fox News')
-            launch: If True, auto-launch the first result
+            launch: If True, auto-launch the first result via the preferred provider
+            content_type: Optional type filter: 'channel', 'movie', 'tv-show', 'person'
+            provider_id: Optional Roku app ID to prefer (e.g., '195316' for YouTube TV)
+            match_any: If True, auto-select first result when multiple matches
         """
         try:
             await self.ensure_session()
@@ -119,12 +124,23 @@ class RokuClient:
             # URL-encode the keyword to handle spaces and special characters
             encoded_keyword = quote(keyword)
             params = f"keyword={encoded_keyword}"
+            if content_type:
+                params += f"&type={content_type}"
+            if provider_id:
+                params += f"&provider-id={provider_id}"
+            if match_any:
+                params += "&match-any=true"
             if launch:
                 params += "&launch=true"
             url = f"{self.base_url}/search/browse?{params}"
-            logger.debug(f"Roku search URL: {url}")
+            logger.info(f"Roku search URL: {url}")
             async with self.session.post(url, timeout=aiohttp.ClientTimeout(total=self.timeout)) as resp:
-                return resp.status in [200, 204]
+                success = resp.status in [200, 204]
+                if success:
+                    logger.info(f"Roku search/browse succeeded on {self.ip}")
+                else:
+                    logger.warning(f"Roku search/browse returned {resp.status} on {self.ip}")
+                return success
         except asyncio.TimeoutError:
             logger.error(f"Search browse timeout on {self.ip}")
             return False
@@ -475,10 +491,13 @@ class RokuDevice(TVDevice):
             }
 
     async def tune_channel(self, channel_name: str) -> Dict[str, Any]:
-        """Tune to a specific channel on YouTube TV via Roku search
+        """Tune to a specific channel on YouTube TV
 
-        Uses Roku's built-in search to find and tune to live TV channels.
-        This launches YouTube TV and uses ECP keypresses to search for the channel.
+        Hybrid strategy:
+          1. Try deep link first (instant) using cached videoId from browse.json
+             POST /launch/195316?contentId=<videoId>&mediaType=live
+          2. If no videoId cached, fall back to keypress navigation:
+             Home → Launch YTV → Right×3 → Select → type channel → Down → Select
 
         Args:
             channel_name: Name of the channel (e.g., 'ESPN', 'CBS', 'Fox News')
@@ -499,33 +518,72 @@ class RokuDevice(TVDevice):
                     'device_id': self.device_id
                 }
 
-            # Use Roku's built-in search/browse endpoint to pre-fill search
-            logger.info(f"Using Roku search to find '{channel_name}' on {self.device_name}")
-            success = await self.roku_client.search_browse(channel_name, launch=True)
+            ytv_app_id = self.app_ids.get('YouTubeTV', '195316')
+
+            # Strategy 1: Try deep link with cached videoId (instant)
+            from apis.tv_control.ytv_channels import get_mapper
+            mapper = get_mapper()
+            video_id = mapper.get_video_id(channel_name)
+
+            if video_id:
+                logger.info(f"Deep linking '{channel_name}' (videoId={video_id}) on {self.device_name}")
+                params = {'contentId': video_id, 'mediaType': 'live'}
+                success = await self.roku_client.launch_app(ytv_app_id, params=params)
+
+                if success:
+                    return {
+                        'status': 'success',
+                        'message': f'Tuning to {channel_name} on {self.device_name}',
+                        'device_id': self.device_id,
+                        'device_name': self.device_name,
+                        'device_type': self.device_type,
+                        'channel': channel_name,
+                        'app': 'YouTubeTV',
+                        'method': 'deep_link',
+                        'is_connected': True
+                    }
+                else:
+                    logger.warning(f"Deep link failed for {channel_name}, falling back to keypress")
+                    mapper.mark_stale(channel_name)
+
+            # Strategy 2: Keypress navigation fallback
+            logger.info(f"Tuning to '{channel_name}' on {self.device_name} via YouTube TV keypress navigation")
+
+            # Go to Roku Home first to guarantee clean state
+            await self.roku_client.send_keypress('Home')
+            await asyncio.sleep(1)
+
+            # Launch YouTube TV fresh from Roku home screen
+            success = await self.roku_client.launch_app(ytv_app_id)
             if not success:
                 return {
                     'status': 'error',
-                    'message': f'Roku search failed for {channel_name} on {self.device_name}',
+                    'message': f'Failed to launch YouTube TV on {self.device_name}',
                     'device_id': self.device_id
                 }
+            # Wait for YouTube TV to load (profile picker is bypassed)
+            await asyncio.sleep(5)
 
-            # Wait for search results to populate
-            await asyncio.sleep(2)
+            # Navigate to YouTube TV's Search tab
+            # Menu bar: Home | Live | Library | Search — Right×3 from Home
+            logger.info(f"Navigating to Search tab in YouTube TV on {self.device_name}")
+            for _ in range(3):
+                await self.roku_client.send_keypress('Right')
+                await asyncio.sleep(0.3)
+            await self.roku_client.send_keypress('Select')  # Open Search
+            await asyncio.sleep(1.5)
 
-            # Roku search screen: keyboard on the left, results on the right
-            # Press Right to move from the keyboard to the results panel
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
+            # Type the channel name character by character
+            logger.info(f"Typing '{channel_name}' in YouTube TV search on {self.device_name}")
+            await self.roku_client.type_text(channel_name)
+            await asyncio.sleep(2)  # Wait for search results to populate
 
-            # Select the first result to launch it
+            # Navigate to first result and select it
+            await self.roku_client.send_keypress('Down')
+            await asyncio.sleep(0.5)
             await self.roku_client.send_keypress('Select')
-            await asyncio.sleep(1)
 
-            logger.info(f"Tuned to {channel_name} on {self.device_name}")
+            logger.info(f"Tuned to {channel_name} on {self.device_name} via YouTube TV")
 
             return {
                 'status': 'success',
@@ -573,7 +631,10 @@ class RokuDevice(TVDevice):
                 }
 
             logger.info(f"Roku search for '{keyword}' on {self.device_name}")
-            success = await self.roku_client.search_browse(keyword, launch=True)
+            # Use match-any to auto-select first result, launch to auto-open
+            success = await self.roku_client.search_browse(
+                keyword, launch=True, match_any=True
+            )
             if not success:
                 return {
                     'status': 'error',
@@ -581,20 +642,10 @@ class RokuDevice(TVDevice):
                     'device_id': self.device_id
                 }
 
-            # Wait for search results to populate
-            await asyncio.sleep(2)
+            # Wait for search results and auto-launch
+            await asyncio.sleep(3)
 
-            # Navigate from keyboard to results panel (Right x3) and select first result
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
-            await self.roku_client.send_keypress('Right')
-            await asyncio.sleep(0.5)
-            await self.roku_client.send_keypress('Select')
-            await asyncio.sleep(1)
-
-            logger.info(f"Selected first search result for '{keyword}' on {self.device_name}")
+            logger.info(f"Search launched for '{keyword}' on {self.device_name}")
 
             return {
                 'status': 'success',

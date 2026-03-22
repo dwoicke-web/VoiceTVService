@@ -9,6 +9,7 @@ Invocation: "Alexa, tell TV Control to turn on all TVs"
 
 import asyncio
 import logging
+import threading
 from flask import Blueprint
 from ask_sdk_core.skill_builder import SkillBuilder
 from ask_sdk_core.dispatch_components import AbstractRequestHandler, AbstractExceptionHandler
@@ -84,6 +85,8 @@ def _execute_command(transcript):
         result = _exec_reset(command, loop)
     elif intent == 'tune_channel':
         result = _exec_tune(command, loop)
+    elif intent == 'watch_game':
+        result = _exec_watch_game(command, loop)
     elif intent == 'launch_app':
         result = _exec_launch(command, loop)
     elif intent == 'play_content':
@@ -173,8 +176,19 @@ def _exec_tune(command, loop):
 
     roku = _get_roku(tv_id)
     if roku:
-        loop.run_until_complete(roku.tune_channel(channel))
         tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
+        # Run tune_channel in background thread so Alexa gets an immediate response
+        # (tune_channel takes 15+ seconds with all the sleeps for navigation)
+        def _bg_tune():
+            bg_loop = asyncio.new_event_loop()
+            try:
+                bg_loop.run_until_complete(roku.tune_channel(channel))
+            except Exception as e:
+                logger.error(f"Background tune_channel error: {e}")
+            finally:
+                bg_loop.close()
+
+        threading.Thread(target=_bg_tune, daemon=True).start()
         return {'status': 'success', 'voice_response': f"Tuning to {channel} on {tv_name}"}
     else:
         return {'status': 'error', 'voice_response': f"No Roku configured for {tv_id.replace('_', ' ')}"}
@@ -194,6 +208,52 @@ def _exec_launch(command, loop):
         return {'status': 'success', 'voice_response': f"Launching {service} on {tv_name}"}
     else:
         return {'status': 'error', 'voice_response': f"No Roku configured for {tv_id.replace('_', ' ')}"}
+
+
+def _exec_watch_game(command, loop):
+    team = command.get('team')
+    tv_id = command.get('tv_id') or 'upper_left'
+
+    if not team:
+        return {'status': 'error', 'voice_response': 'Which team should I find?'}
+
+    try:
+        from apis.sports import get_scoreboard
+        scoreboard = get_scoreboard()
+        game = loop.run_until_complete(scoreboard.find_team_game(team))
+
+        if not game:
+            return {'status': 'error', 'voice_response': f"No games found for the {team} right now"}
+
+        apps = game.get('watchable_apps', [])
+        app_name = apps[0]['app_name'] if apps else 'YouTubeTV'
+        broadcast = game.get('broadcast_display', '')
+        home = game.get('home_team', {}).get('short_name', '')
+        away = game.get('away_team', {}).get('short_name', '')
+        status = game.get('status', '')
+        status_detail = game.get('status_detail', '')
+
+        if status == 'in':
+            home_score = game.get('home_team', {}).get('score', '')
+            away_score = game.get('away_team', {}).get('score', '')
+            game_desc = f"{away} {away_score} at {home} {home_score}"
+        elif status == 'pre':
+            game_desc = f"{away} at {home}, {status_detail}"
+        else:
+            game_desc = f"{away} at {home}, Final"
+
+        roku = _get_roku(tv_id)
+        if roku:
+            loop.run_until_complete(roku.launch_app(app_name))
+            tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
+            return {'status': 'success',
+                    'voice_response': f"{game_desc}. On {broadcast}. Launching {app_name} on {tv_name}."}
+        else:
+            return {'status': 'error',
+                    'voice_response': f"Found game on {broadcast} but no Roku for {tv_id.replace('_', ' ')}"}
+
+    except Exception as e:
+        return {'status': 'error', 'voice_response': f"Error finding {team} game"}
 
 
 def _exec_play(command, loop):

@@ -94,6 +94,13 @@ class SearchAggregator:
             else:
                 all_results.extend(result)
 
+        # Also search ESPN scoreboard for live sports games
+        try:
+            sports_results = await self._search_sports(query)
+            all_results.extend(sports_results)
+        except Exception as e:
+            print(f"Error searching sports scoreboard: {e}")
+
         # Deduplicate and rank results
         ranked_results = self._deduplicate_and_rank(all_results)
 
@@ -264,17 +271,76 @@ class SearchAggregator:
         # 3. Release year (newer is better, but not critically)
 
         def sort_key(result):
+            # Live sports games always come first
+            is_live = 1 if result.get('is_live_game') else 0
+            is_sports = 1 if result.get('type') == 'sports' else 0
             num_services = len(result.get('available_services', []))
             imdb_rating = result.get('imdb_rating', 0) or 0
             year = result.get('release_year', 0) or 0
 
             return (
+                -is_live,           # Live games first
+                -is_sports,         # Sports results above movies/shows
                 -num_services,      # More services = higher priority
                 -imdb_rating,       # Higher rating = higher priority
                 -year,              # Newer = higher priority (tie-breaker)
             )
 
         return sorted(results, key=sort_key)
+
+    async def _search_sports(self, query: str) -> List[Dict[str, Any]]:
+        """Search ESPN scoreboard for live/upcoming games matching the query.
+
+        Converts ESPN game data into the standard search result format so games
+        appear alongside streaming content in search results.
+        """
+        from .sports import get_scoreboard
+
+        scoreboard = get_scoreboard()
+        result = await scoreboard.fetch_all_games(team=query)
+        games = result.get('games', [])
+
+        search_results = []
+        for game in games:
+            # Build available_services from watchable_apps
+            services = [app['app_name'] for app in game.get('watchable_apps', [])]
+            if not services:
+                services = ['YouTube TV']
+
+            # Status indicator
+            status = game.get('status', '')
+            if status == 'in':
+                status_emoji = '🔴 LIVE'
+            elif status == 'pre':
+                status_emoji = '🟡 Upcoming'
+            else:
+                status_emoji = '✅ Final'
+
+            home = game.get('home_team', {})
+            away = game.get('away_team', {})
+            broadcast = game.get('broadcast_display', '')
+
+            description = f"{status_emoji} — {game.get('status_detail', '')} | 📺 {broadcast} | {game.get('league', '')}"
+
+            # Use away team logo as poster (the team the user likely searched for)
+            poster = away.get('logo', '') or home.get('logo', '')
+            if not poster:
+                poster = 'https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo-500.png&w=150&h=150'
+
+            search_results.append({
+                'id': game.get('id', ''),
+                'title': game.get('title', ''),
+                'type': 'sports',
+                'description': description,
+                'poster': poster,
+                'available_services': services,
+                'available_tvs': ['upper_left', 'upper_right', 'lower_left', 'lower_right'],
+                'imdb_rating': None,
+                'release_year': None,
+                'is_live_game': status == 'in',
+            })
+
+        return search_results
 
     def clear_cache(self):
         """Clear the search cache"""

@@ -16,6 +16,7 @@ class CommandIntent(Enum):
     RESET_ANTENNA = "reset_antenna"
     LAUNCH_APP = "launch_app"
     TUNE_CHANNEL = "tune_channel"
+    WATCH_GAME = "watch_game"
     GET_INFO = "get_info"
     UNKNOWN = "unknown"
 
@@ -143,6 +144,112 @@ class CommandParser:
             'nationals': 'Nationals', 'washington nationals': 'Nationals',
         }
 
+        # NHL teams (32 teams)
+        self.nhl_teams = {
+            'penguins': ('Penguins', 'nhl'), 'pittsburgh penguins': ('Penguins', 'nhl'), 'pens': ('Penguins', 'nhl'),
+            'flyers': ('Flyers', 'nhl'), 'philadelphia flyers': ('Flyers', 'nhl'),
+            'bruins': ('Bruins', 'nhl'), 'boston bruins': ('Bruins', 'nhl'),
+            'rangers': ('Rangers', 'nhl'), 'new york rangers': ('Rangers', 'nhl'),
+            'islanders': ('Islanders', 'nhl'), 'new york islanders': ('Islanders', 'nhl'),
+            'devils': ('Devils', 'nhl'), 'new jersey devils': ('Devils', 'nhl'),
+            'capitals': ('Capitals', 'nhl'), 'washington capitals': ('Capitals', 'nhl'), 'caps': ('Capitals', 'nhl'),
+            'hurricanes': ('Hurricanes', 'nhl'), 'carolina hurricanes': ('Hurricanes', 'nhl'), 'canes': ('Hurricanes', 'nhl'),
+            'panthers': ('Panthers', 'nhl'), 'florida panthers': ('Panthers', 'nhl'),
+            'lightning': ('Lightning', 'nhl'), 'tampa bay lightning': ('Lightning', 'nhl'), 'bolts': ('Lightning', 'nhl'),
+            'red wings': ('Red Wings', 'nhl'), 'detroit red wings': ('Red Wings', 'nhl'),
+            'blackhawks': ('Blackhawks', 'nhl'), 'chicago blackhawks': ('Blackhawks', 'nhl'), 'hawks': ('Blackhawks', 'nhl'),
+            'blue jackets': ('Blue Jackets', 'nhl'), 'columbus blue jackets': ('Blue Jackets', 'nhl'),
+            'predators': ('Predators', 'nhl'), 'nashville predators': ('Predators', 'nhl'), 'preds': ('Predators', 'nhl'),
+            'blues': ('Blues', 'nhl'), 'st louis blues': ('Blues', 'nhl'),
+            'wild': ('Wild', 'nhl'), 'minnesota wild': ('Wild', 'nhl'),
+            'stars': ('Stars', 'nhl'), 'dallas stars': ('Stars', 'nhl'),
+            'avalanche': ('Avalanche', 'nhl'), 'colorado avalanche': ('Avalanche', 'nhl'), 'avs': ('Avalanche', 'nhl'),
+            'jets': ('Jets', 'nhl'), 'winnipeg jets': ('Jets', 'nhl'),
+            'flames': ('Flames', 'nhl'), 'calgary flames': ('Flames', 'nhl'),
+            'oilers': ('Oilers', 'nhl'), 'edmonton oilers': ('Oilers', 'nhl'),
+            'canucks': ('Canucks', 'nhl'), 'vancouver canucks': ('Canucks', 'nhl'),
+            'kraken': ('Kraken', 'nhl'), 'seattle kraken': ('Kraken', 'nhl'),
+            'golden knights': ('Golden Knights', 'nhl'), 'vegas golden knights': ('Golden Knights', 'nhl'), 'knights': ('Golden Knights', 'nhl'),
+            'kings': ('Kings', 'nhl'), 'la kings': ('Kings', 'nhl'), 'los angeles kings': ('Kings', 'nhl'),
+            'ducks': ('Ducks', 'nhl'), 'anaheim ducks': ('Ducks', 'nhl'),
+            'sharks': ('Sharks', 'nhl'), 'san jose sharks': ('Sharks', 'nhl'),
+            'sabres': ('Sabres', 'nhl'), 'buffalo sabres': ('Sabres', 'nhl'),
+            'senators': ('Senators', 'nhl'), 'ottawa senators': ('Senators', 'nhl'), 'sens': ('Senators', 'nhl'),
+            'maple leafs': ('Maple Leafs', 'nhl'), 'toronto maple leafs': ('Maple Leafs', 'nhl'), 'leafs': ('Maple Leafs', 'nhl'),
+            'canadiens': ('Canadiens', 'nhl'), 'montreal canadiens': ('Canadiens', 'nhl'), 'habs': ('Canadiens', 'nhl'),
+            'utah hockey club': ('Utah Hockey Club', 'nhl'), 'utah': ('Utah Hockey Club', 'nhl'),
+        }
+
+        # NBA teams (30 teams)
+        self.nba_teams = {
+            'lakers': ('Lakers', 'nba'), 'la lakers': ('Lakers', 'nba'), 'los angeles lakers': ('Lakers', 'nba'),
+            'celtics': ('Celtics', 'nba'), 'boston celtics': ('Celtics', 'nba'),
+            'warriors': ('Warriors', 'nba'), 'golden state warriors': ('Warriors', 'nba'),
+            '76ers': ('76ers', 'nba'), 'sixers': ('76ers', 'nba'), 'philadelphia 76ers': ('76ers', 'nba'),
+            'nets': ('Nets', 'nba'), 'brooklyn nets': ('Nets', 'nba'),
+            'knicks': ('Knicks', 'nba'), 'new york knicks': ('Knicks', 'nba'),
+            'bucks': ('Bucks', 'nba'), 'milwaukee bucks': ('Bucks', 'nba'),
+            'heat': ('Heat', 'nba'), 'miami heat': ('Heat', 'nba'),
+            'bulls': ('Bulls', 'nba'), 'chicago bulls': ('Bulls', 'nba'),
+            'cavaliers': ('Cavaliers', 'nba'), 'cleveland cavaliers': ('Cavaliers', 'nba'), 'cavs': ('Cavaliers', 'nba'),
+            'raptors': ('Raptors', 'nba'), 'toronto raptors': ('Raptors', 'nba'),
+            'pacers': ('Pacers', 'nba'), 'indiana pacers': ('Pacers', 'nba'),
+            'hawks': ('Hawks', 'nba'), 'atlanta hawks': ('Hawks', 'nba'),
+            'hornets': ('Hornets', 'nba'), 'charlotte hornets': ('Hornets', 'nba'),
+            'wizards': ('Wizards', 'nba'), 'washington wizards': ('Wizards', 'nba'),
+            'magic': ('Magic', 'nba'), 'orlando magic': ('Magic', 'nba'),
+            'pistons': ('Pistons', 'nba'), 'detroit pistons': ('Pistons', 'nba'),
+            'spurs': ('Spurs', 'nba'), 'san antonio spurs': ('Spurs', 'nba'),
+            'mavericks': ('Mavericks', 'nba'), 'dallas mavericks': ('Mavericks', 'nba'), 'mavs': ('Mavericks', 'nba'),
+            'rockets': ('Rockets', 'nba'), 'houston rockets': ('Rockets', 'nba'),
+            'grizzlies': ('Grizzlies', 'nba'), 'memphis grizzlies': ('Grizzlies', 'nba'),
+            'pelicans': ('Pelicans', 'nba'), 'new orleans pelicans': ('Pelicans', 'nba'),
+            'timberwolves': ('Timberwolves', 'nba'), 'minnesota timberwolves': ('Timberwolves', 'nba'), 'wolves': ('Timberwolves', 'nba'),
+            'nuggets': ('Nuggets', 'nba'), 'denver nuggets': ('Nuggets', 'nba'),
+            'trail blazers': ('Trail Blazers', 'nba'), 'portland trail blazers': ('Trail Blazers', 'nba'), 'blazers': ('Trail Blazers', 'nba'),
+            'thunder': ('Thunder', 'nba'), 'oklahoma city thunder': ('Thunder', 'nba'), 'okc': ('Thunder', 'nba'),
+            'jazz': ('Jazz', 'nba'), 'utah jazz': ('Jazz', 'nba'),
+            'suns': ('Suns', 'nba'), 'phoenix suns': ('Suns', 'nba'),
+            'clippers': ('Clippers', 'nba'), 'la clippers': ('Clippers', 'nba'), 'los angeles clippers': ('Clippers', 'nba'),
+            'kings': ('Kings', 'nba'), 'sacramento kings': ('Kings', 'nba'),
+        }
+
+        # NFL teams (32 teams)
+        self.nfl_teams = {
+            'steelers': ('Steelers', 'nfl'), 'pittsburgh steelers': ('Steelers', 'nfl'),
+            'eagles': ('Eagles', 'nfl'), 'philadelphia eagles': ('Eagles', 'nfl'),
+            'chiefs': ('Chiefs', 'nfl'), 'kansas city chiefs': ('Chiefs', 'nfl'),
+            'cowboys': ('Cowboys', 'nfl'), 'dallas cowboys': ('Cowboys', 'nfl'),
+            'packers': ('Packers', 'nfl'), 'green bay packers': ('Packers', 'nfl'),
+            'patriots': ('Patriots', 'nfl'), 'new england patriots': ('Patriots', 'nfl'), 'pats': ('Patriots', 'nfl'),
+            'bills': ('Bills', 'nfl'), 'buffalo bills': ('Bills', 'nfl'),
+            'ravens': ('Ravens', 'nfl'), 'baltimore ravens': ('Ravens', 'nfl'),
+            'bengals': ('Bengals', 'nfl'), 'cincinnati bengals': ('Bengals', 'nfl'),
+            'browns': ('Browns', 'nfl'), 'cleveland browns': ('Browns', 'nfl'),
+            'dolphins': ('Dolphins', 'nfl'), 'miami dolphins': ('Dolphins', 'nfl'),
+            'jets': ('Jets', 'nfl'), 'new york jets': ('Jets', 'nfl'),
+            'giants': ('Giants', 'nfl'), 'new york giants': ('Giants', 'nfl'),
+            'texans': ('Texans', 'nfl'), 'houston texans': ('Texans', 'nfl'),
+            'colts': ('Colts', 'nfl'), 'indianapolis colts': ('Colts', 'nfl'),
+            'jaguars': ('Jaguars', 'nfl'), 'jacksonville jaguars': ('Jaguars', 'nfl'), 'jags': ('Jaguars', 'nfl'),
+            'titans': ('Titans', 'nfl'), 'tennessee titans': ('Titans', 'nfl'),
+            'broncos': ('Broncos', 'nfl'), 'denver broncos': ('Broncos', 'nfl'),
+            'chargers': ('Chargers', 'nfl'), 'los angeles chargers': ('Chargers', 'nfl'), 'la chargers': ('Chargers', 'nfl'),
+            'raiders': ('Raiders', 'nfl'), 'las vegas raiders': ('Raiders', 'nfl'),
+            'seahawks': ('Seahawks', 'nfl'), 'seattle seahawks': ('Seahawks', 'nfl'),
+            '49ers': ('49ers', 'nfl'), 'san francisco 49ers': ('49ers', 'nfl'), 'niners': ('49ers', 'nfl'),
+            'rams': ('Rams', 'nfl'), 'los angeles rams': ('Rams', 'nfl'), 'la rams': ('Rams', 'nfl'),
+            'cardinals': ('Cardinals', 'nfl'), 'arizona cardinals': ('Cardinals', 'nfl'),
+            'falcons': ('Falcons', 'nfl'), 'atlanta falcons': ('Falcons', 'nfl'),
+            'saints': ('Saints', 'nfl'), 'new orleans saints': ('Saints', 'nfl'),
+            'panthers': ('Panthers', 'nfl'), 'carolina panthers': ('Panthers', 'nfl'),
+            'buccaneers': ('Buccaneers', 'nfl'), 'tampa bay buccaneers': ('Buccaneers', 'nfl'), 'bucs': ('Buccaneers', 'nfl'),
+            'bears': ('Bears', 'nfl'), 'chicago bears': ('Bears', 'nfl'),
+            'lions': ('Lions', 'nfl'), 'detroit lions': ('Lions', 'nfl'),
+            'vikings': ('Vikings', 'nfl'), 'minnesota vikings': ('Vikings', 'nfl'),
+            'commanders': ('Commanders', 'nfl'), 'washington commanders': ('Commanders', 'nfl'),
+        }
+
         # Streaming service name mappings
         self.service_map = {
             'youtube tv': 'YouTubeTV',
@@ -180,6 +287,10 @@ class CommandParser:
         # 3. Tune to a channel on YouTube TV
         if self._is_tune_channel(text):
             return self._parse_tune_channel(text)
+
+        # 3.5. Watch a specific sports game
+        if self._is_watch_game(text):
+            return self._parse_watch_game(text)
 
         # 4. Launch specific app
         if self._is_launch_app(text):
@@ -271,6 +382,17 @@ class CommandParser:
     def _is_search_command(self, text: str) -> bool:
         return any(k in text for k in ['find', 'search', 'look for', 'what is', 'where is', 'where can'])
 
+    def _is_watch_game(self, text: str) -> bool:
+        """Check if this is a request to watch a sports game"""
+        team_info = self._extract_sports_team(text)
+        if not team_info:
+            return False
+        # Must have a play-type verb
+        has_watch = any(k in text for k in ['watch', 'put on', 'show', 'play'])
+        # Or mention "game"
+        has_game = 'game' in text
+        return has_watch or has_game
+
     def _is_volume_command(self, text: str) -> bool:
         return any(k in text for k in ['volume', 'louder', 'quieter', 'mute', 'unmute'])
 
@@ -304,6 +426,18 @@ class CommandParser:
             'channel': channel,
             'tv_id': tv_id,
             'voice_response': f"Tuning to {channel}" + (f" on {tv_id.replace('_', ' ')}" if tv_id else "")
+        }
+
+    def _parse_watch_game(self, text: str) -> Dict[str, Any]:
+        team_name, sport = self._extract_sports_team(text)
+        tv_id = self._extract_tv(text)
+        return {
+            'status': 'success',
+            'intent': CommandIntent.WATCH_GAME.value,
+            'team': team_name,
+            'sport': sport,
+            'tv_id': tv_id,
+            'voice_response': f"Finding the {team_name} game..."
         }
 
     def _parse_launch_app(self, text: str) -> Dict[str, Any]:
@@ -400,6 +534,29 @@ class CommandParser:
         for phrase in sorted(self.tv_map.keys(), key=len, reverse=True):
             if phrase in text:
                 return self.tv_map[phrase]
+        return None
+
+    def _extract_sports_team(self, text: str):
+        """Extract any sports team (NHL, NBA, NFL, MLB) from text.
+        Returns (team_name, sport) tuple or None.
+        """
+        # Check all sport dicts, longest match first
+        all_teams = {}
+        for phrase, val in self.nhl_teams.items():
+            all_teams[phrase] = val
+        for phrase, val in self.nba_teams.items():
+            all_teams[phrase] = val
+        for phrase, val in self.nfl_teams.items():
+            all_teams[phrase] = val
+        for phrase, val in self.mlb_teams.items():
+            all_teams[phrase] = (val, 'mlb')
+
+        for phrase in sorted(all_teams.keys(), key=len, reverse=True):
+            if phrase in text:
+                result = all_teams[phrase]
+                if isinstance(result, tuple):
+                    return result  # (team_name, sport)
+                return (result, 'unknown')
         return None
 
     def _extract_mlb_team(self, text: str) -> str:

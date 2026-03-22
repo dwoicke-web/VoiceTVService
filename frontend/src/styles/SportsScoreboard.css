@@ -1,0 +1,333 @@
+/* Sports Scoreboard */
+.sports-scoreboard {
+  background: #1a1a2e;
+  border-radius: 12px;
+  padding: 0;
+  margin: 20px 0;
+  border: 1px solid #333;
+  overflow: hidden;
+}
+
+.sports-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background: linear-gradient(135deg, #16213e, #1a1a2e);
+  cursor: pointer;
+  user-select: none;
+}
+
+.sports-header h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-count {
+  background: #e74c3c;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.sports-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.last-updated {
+  color: #888;
+  font-size: 0.75rem;
+}
+
+.collapse-btn {
+  background: transparent;
+  border: 1px solid #555;
+  color: #aaa;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.collapse-btn:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+/* Filters */
+.sports-filters {
+  padding: 10px 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.league-tabs,
+.status-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.league-tab,
+.status-tab {
+  background: #2a2a3e;
+  border: 1px solid #444;
+  color: #ccc;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.league-tab:hover,
+.status-tab:hover {
+  background: #3a3a5e;
+  color: #fff;
+}
+
+.league-tab.active {
+  background: #4a6cf7;
+  border-color: #4a6cf7;
+  color: #fff;
+}
+
+.status-tab.active {
+  background: #2ecc71;
+  border-color: #2ecc71;
+  color: #fff;
+}
+
+/* Games Grid */
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  padding: 15px 20px;
+}
+
+.game-card {
+  background: #222240;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 14px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.game-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.game-card.live-game {
+  border-color: #e74c3c;
+  box-shadow: 0 0 10px rgba(231, 76, 60, 0.2);
+}
+
+.game-league-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #333;
+  color: #aaa;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* Teams */
+.game-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.team-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.team-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.team-name {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.team-record {
+  color: #888;
+  font-size: 0.72rem;
+}
+
+.team-score {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #fff;
+  min-width: 30px;
+  text-align: right;
+}
+
+.game-vs {
+  color: #666;
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 0 5px;
+}
+
+/* Status */
+.game-status {
+  margin-bottom: 8px;
+}
+
+.status-badge {
+  font-size: 0.78rem;
+  padding: 3px 0;
+  display: inline-block;
+}
+
+.status-badge.live {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.status-badge.upcoming {
+  color: #f39c12;
+}
+
+.status-badge.final {
+  color: #888;
+}
+
+/* Broadcast */
+.game-broadcast {
+  color: #aaa;
+  font-size: 0.78rem;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+/* Actions */
+.game-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.watch-action {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.watch-btn {
+  background: linear-gradient(135deg, #4a6cf7, #3d5afe);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.watch-btn:hover {
+  background: linear-gradient(135deg, #5a7cff, #4d6aff);
+  transform: translateY(-1px);
+}
+
+.tv-launch-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.watch-label {
+  color: #aaa;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.watch-btn-sm {
+  background: #2a3a6e;
+  color: #8ab4f8;
+  border: 1px solid #3a4a8e;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  transition: all 0.2s;
+}
+
+.watch-btn-sm:hover {
+  background: #3a4a8e;
+  color: #fff;
+}
+
+/* Loading/Empty/Error states */
+.sports-loading,
+.sports-empty {
+  padding: 30px 20px;
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.sports-error {
+  padding: 10px 20px;
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+  font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .games-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sports-filters {
+    padding: 10px;
+  }
+
+  .league-tab,
+  .status-tab {
+    padding: 5px 10px;
+    font-size: 0.72rem;
+  }
+}

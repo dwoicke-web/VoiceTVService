@@ -6,6 +6,7 @@ Executes commands on Fire TVs and Roku devices, provides Sonos TTS feedback
 import asyncio
 import os
 import logging
+import threading
 from flask import Blueprint, request, jsonify
 from apis.voice.command_parser import get_command_parser
 from apis.sonos import get_sonos_manager
@@ -93,6 +94,8 @@ def process_voice_command():
             result = _execute_reset_antenna(command, loop)
         elif intent == 'tune_channel':
             result = _execute_tune_channel(command, loop)
+        elif intent == 'watch_game':
+            result = _execute_watch_game(command, loop)
         elif intent == 'launch_app':
             result = _execute_launch_app(command, loop)
         elif intent == 'play_content':
@@ -212,9 +215,24 @@ def _execute_tune_channel(command: dict, loop) -> dict:
 
     roku = _get_roku(tv_id)
     if roku:
-        result = loop.run_until_complete(roku.tune_channel(channel))
-        result['voice_response'] = f"Tuning to {channel} on {FIRE_TVS.get(tv_id, {}).get('name', tv_id)}"
-        return result
+        tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
+        # Run tune_channel in background thread so the API responds immediately
+        # (tune_channel takes 15+ seconds with YouTube TV launch + search navigation)
+        def _bg_tune():
+            bg_loop = asyncio.new_event_loop()
+            try:
+                bg_loop.run_until_complete(roku.tune_channel(channel))
+            except Exception as e:
+                logger.error(f"Background tune_channel error: {e}")
+            finally:
+                bg_loop.close()
+
+        threading.Thread(target=_bg_tune, daemon=True).start()
+        return {
+            'status': 'success',
+            'message': f'Tuning to {channel} on {tv_name}',
+            'voice_response': f"Tuning to {channel} on {tv_name}"
+        }
     else:
         return {
             'status': 'error',
@@ -246,6 +264,70 @@ def _execute_launch_app(command: dict, loop) -> dict:
             'message': f'No Roku configured for {tv_id}',
             'voice_response': f"Cannot find Roku for {tv_id.replace('_', ' ')}"
         }
+
+
+def _execute_watch_game(command: dict, loop) -> dict:
+    """Find a sports game via ESPN API and launch the correct streaming app"""
+    team = command.get('team')
+    tv_id = command.get('tv_id') or 'upper_left'
+
+    if not team:
+        return {'status': 'error', 'message': 'Which team?', 'voice_response': 'Which team should I find?'}
+
+    try:
+        from apis.sports import get_scoreboard
+        scoreboard = get_scoreboard()
+        game = loop.run_until_complete(scoreboard.find_team_game(team))
+
+        if not game:
+            return {
+                'status': 'error',
+                'message': f'No games found for {team}',
+                'voice_response': f"I couldn't find a game for the {team} right now"
+            }
+
+        # Get the best app to launch
+        apps = game.get('watchable_apps', [])
+        app_name = apps[0]['app_name'] if apps else 'YouTubeTV'
+        broadcast = game.get('broadcast_display', '')
+
+        # Build game description
+        home = game.get('home_team', {}).get('short_name', '')
+        away = game.get('away_team', {}).get('short_name', '')
+        status = game.get('status', '')
+        status_detail = game.get('status_detail', '')
+
+        if status == 'in':
+            home_score = game.get('home_team', {}).get('score', '')
+            away_score = game.get('away_team', {}).get('score', '')
+            game_desc = f"{away} {away_score} at {home} {home_score}, {status_detail}"
+        elif status == 'pre':
+            game_desc = f"{away} at {home}, {status_detail}"
+        else:
+            game_desc = f"{away} at {home}, Final"
+
+        # Launch the app on the Roku
+        roku = _get_roku(tv_id)
+        if roku:
+            loop.run_until_complete(roku.launch_app(app_name))
+            tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
+            voice = f"The {team} game: {game_desc}. On {broadcast}. Launching {app_name} on {tv_name}."
+            return {
+                'status': 'success',
+                'message': f'Launching {app_name} for {team} game',
+                'voice_response': voice,
+                'game': game
+            }
+        else:
+            return {
+                'status': 'error',
+                'message': f'No Roku for {tv_id}',
+                'voice_response': f"Found {team} game on {broadcast} but no Roku for {tv_id.replace('_', ' ')}"
+            }
+
+    except Exception as e:
+        logger.error(f"Watch game error: {e}", exc_info=True)
+        return {'status': 'error', 'message': str(e), 'voice_response': f"Error finding {team} game"}
 
 
 def _execute_play(command: dict, loop) -> dict:

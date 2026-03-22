@@ -4,6 +4,9 @@ import TVLayout from '../components/TVLayout';
 import SearchBar from '../components/SearchBar';
 import ResultsList from '../components/ResultsList';
 import VoiceControl from '../components/VoiceControl';
+import SportsScoreboard from '../components/SportsScoreboard';
+import ChannelPicker from '../components/ChannelPicker';
+import YTVChannelManager from '../components/YTVChannelManager';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -131,6 +134,18 @@ const Dashboard = () => {
     // Refresh TV states if power command was executed
     if (result.parsed_intent === 'control_power' || result.parsed_intent === 'reset_antenna') {
       fetchTVs();
+    }
+  };
+
+  const handleTuneChannel = async (channelName, tvId) => {
+    try {
+      await axios.post('/api/tv/tune', {
+        tv_id: tvId,
+        channel: channelName
+      });
+    } catch (err) {
+      console.error('Error tuning channel:', err);
+      setError(`Failed to tune to ${channelName}`);
     }
   };
 
@@ -273,6 +288,19 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      <ChannelPicker
+        selectedTV={selectedTV}
+        tvs={tvs}
+      />
+
+      <SportsScoreboard
+        selectedTV={selectedTV}
+        tvs={tvs}
+        onTuneChannel={handleTuneChannel}
+      />
+
+      <YTVChannelManager />
     </div>
   );
 };

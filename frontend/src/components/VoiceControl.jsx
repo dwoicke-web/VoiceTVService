@@ -234,10 +234,12 @@ const VoiceControl = ({ onCommandExecuted }) => {
           <div className="voice-examples">
             <p className="examples-label">Try saying:</p>
             <ul>
+              <li>"Tune to ESPN on upper left"</li>
+              <li>"Tune Fox News on lower right"</li>
+              <li>"Watch the Penguins game on upper right"</li>
+              <li>"Launch Netflix on upper left"</li>
               <li>"Turn on all TVs"</li>
               <li>"Reset antenna"</li>
-              <li>"Launch Netflix on upper left"</li>
-              <li>"Search for Lakers"</li>
             </ul>
           </div>
         )}

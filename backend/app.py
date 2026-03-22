@@ -66,6 +66,7 @@ from routes.tv_control import tv_control_bp
 from routes.voice import voice_bp
 from routes.devices import devices_bp
 from routes.alexa import alexa_bp
+from routes.sports import sports_bp
 
 # Register blueprints
 app.register_blueprint(search_bp)
@@ -73,6 +74,7 @@ app.register_blueprint(tv_control_bp)
 app.register_blueprint(voice_bp)
 app.register_blueprint(devices_bp)
 app.register_blueprint(alexa_bp)
+app.register_blueprint(sports_bp)
 
 
 @app.route('/health', methods=['GET'])
