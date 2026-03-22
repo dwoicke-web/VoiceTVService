@@ -101,12 +101,16 @@ def _execute_command(transcript):
     voice_response = result.get('voice_response', command.get('voice_response', 'Done'))
     success = result.get('status') == 'success'
 
-    # Also speak on Sonos
-    try:
-        sonos = get_sonos_manager()
-        loop.run_until_complete(sonos.speak(voice_response, volume=35))
-    except Exception as e:
-        logger.warning(f"Sonos TTS failed: {e}")
+    # Speak on Sonos in background so Alexa gets its response within the 8s timeout
+    def _sonos_speak():
+        try:
+            sonos = get_sonos_manager()
+            bg_loop = asyncio.new_event_loop()
+            bg_loop.run_until_complete(sonos.speak(voice_response, volume=35))
+            bg_loop.close()
+        except Exception as e:
+            logger.warning(f"Sonos TTS failed: {e}")
+    threading.Thread(target=_sonos_speak, daemon=True).start()
 
     return voice_response, success
 
@@ -624,11 +628,30 @@ def alexa_skill_endpoint():
     else:
         # Skip signature verification (for development / Cloudflare Tunnel)
         from ask_sdk_core.serialize import DefaultSerializer
+        import json as _json
+        raw_body = flask_request.data.decode('utf-8')
+        raw = _json.loads(raw_body)
+        req_type = raw.get('request', {}).get('type', '')
+
+        # Handle CanFulfillIntentRequest before SDK deserialization — older SDK versions
+        # can't deserialize this type and crash with AttributeError on object_type.
+        if req_type == 'CanFulfillIntentRequest':
+            logger.info(f"CanFulfillIntentRequest received — responding YES")
+            response_dict = {
+                'version': '1.0',
+                'response': {
+                    'canFulfillIntent': {
+                        'canFulfill': 'YES',
+                        'slots': {}
+                    }
+                }
+            }
+            flask_response = make_response(_json.dumps(response_dict))
+            flask_response.headers['Content-Type'] = 'application/json'
+            return flask_response
+
         serializer = DefaultSerializer()
-        request_envelope = serializer.deserialize(
-            flask_request.data.decode('utf-8'),
-            'ask_sdk_model.RequestEnvelope'
-        )
+        request_envelope = serializer.deserialize(raw_body, 'ask_sdk_model.RequestEnvelope')
 
         # Invoke the skill
         response_envelope = sb.create().invoke(request_envelope, None)

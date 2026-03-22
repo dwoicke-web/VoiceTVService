@@ -5,14 +5,11 @@
     "ESPNEWS": "lCTPElEDFt4",
     "TBS": "_GRYlu_xpSE",
     "FS1": "OA19WpTOxTY",
-    "NFL NETWORK": "NlWJjcysg3k",
     "SEC NETWORK": "kyy84brOVws",
     "KSHB": "4VJqcqQlp8s",
     "KMBC": "7HUAQX_OVNY",
     "FOX 4": "FvnqQ1A30AI",
     "KCTV 5": "Wor-rM_SdLs",
-    "FOX NEWS": "NR1PA-gRyR8",
-    "NEWSMAX": "CCIZG3NimsA",
     "TRUTV": "dyLsvAzAF6g",
     "DISCOVERY CHANNEL": "lZ0OABAKMmA",
     "ACC NETWORK": "6dc2Z5OVjkc",
@@ -26,7 +23,6 @@
     "KTWU": "CBZLoJTTReA",
     "QVC": "vL6RaO0tHDE",
     "HSN": "VsfmUJIpWww",
-    "NBA TV": "lmchYrC6la0",
     "T2": "xjVSPP9qIhs",
     "CHARGE!": "chmFS60_6wc",
     "ROAR": "vgTkOcyTMI4",
@@ -119,8 +115,15 @@
     "THE WALKING DEAD UNIVERSE": "JniSkzpcX94",
     "SUNDANCETV": "BfI_0nFoJV0",
     "WORLD AT WAR": "gW51CnwZMfQ",
-    "BLOOMBERG TV+ 4K": "ekejWQp8d2w"
+    "BLOOMBERG TV+ 4K": "ekejWQp8d2w",
+    "MSNBC": "FKRGbcbVW1I",
+    "TNT": "K3F9ZXlDx34",
+    "ESPN": "UBsv3sM_DH4",
+    "FOX NEWS": "NR1PA-gRyR8",
+    "NEWSMAX": "CCIZG3NimsA",
+    "NFL NETWORK": "NlWJjcysg3k",
+    "NBA TV": "lmchYrC6la0"
   },
   "updated_at": "2026-03-21T21:29:02.336975",
-  "count": 120
+  "count": 123
 }

@@ -25,7 +25,20 @@ class RokuClient:
         self.session = None
 
     async def ensure_session(self):
-        """Ensure aiohttp session is created"""
+        """Ensure aiohttp session is created and valid for the current event loop"""
+        if self.session:
+            # Check if session is still usable (same event loop, not closed)
+            if self.session.closed:
+                self.session = None
+            else:
+                try:
+                    # Verify session's loop matches current loop
+                    current_loop = asyncio.get_event_loop()
+                    if getattr(self.session, '_loop', None) is not current_loop and hasattr(self.session, '_loop'):
+                        await self.session.close()
+                        self.session = None
+                except Exception:
+                    self.session = None
         if not self.session:
             self.session = aiohttp.ClientSession()
 
@@ -493,11 +506,10 @@ class RokuDevice(TVDevice):
     async def tune_channel(self, channel_name: str) -> Dict[str, Any]:
         """Tune to a specific channel on YouTube TV
 
-        Hybrid strategy:
-          1. Try deep link first (instant) using cached videoId from browse.json
-             POST /launch/195316?contentId=<videoId>&mediaType=live
-          2. If no videoId cached, fall back to keypress navigation:
-             Home → Launch YTV → Right×3 → Select → type channel → Down → Select
+        Always forces a fresh YouTube TV launch for reliability:
+          1. Press Home to kill any existing app state
+          2. Try deep link launch with cached videoId (fast & reliable)
+          3. If no videoId or deep link fails, launch YTV fresh and use keypress navigation
 
         Args:
             channel_name: Name of the channel (e.g., 'ESPN', 'CBS', 'Fox News')
@@ -512,15 +524,24 @@ class RokuDevice(TVDevice):
 
         try:
             if not await self._ensure_connected():
-                return {
-                    'status': 'error',
-                    'message': f'Cannot connect to {self.device_name}',
-                    'device_id': self.device_id
-                }
+                # Retry connection once after a short delay
+                await asyncio.sleep(2)
+                if not await self._ensure_connected():
+                    return {
+                        'status': 'error',
+                        'message': f'Cannot connect to {self.device_name}',
+                        'device_id': self.device_id
+                    }
 
             ytv_app_id = self.app_ids.get('YouTubeTV', '195316')
 
-            # Strategy 1: Try deep link with cached videoId (instant)
+            # Always go Home first to guarantee a clean slate
+            # This kills any stuck YTV state, overlays, or wrong-tab issues
+            logger.info(f"Resetting {self.device_name} to Home before tuning '{channel_name}'")
+            await self.roku_client.send_keypress('Home')
+            await asyncio.sleep(1.5)
+
+            # Strategy 1: Try deep link with cached videoId
             from apis.tv_control.ytv_channels import get_mapper
             mapper = get_mapper()
             video_id = mapper.get_video_id(channel_name)
@@ -531,38 +552,50 @@ class RokuDevice(TVDevice):
                 success = await self.roku_client.launch_app(ytv_app_id, params=params)
 
                 if success:
-                    return {
-                        'status': 'success',
-                        'message': f'Tuning to {channel_name} on {self.device_name}',
-                        'device_id': self.device_id,
-                        'device_name': self.device_name,
-                        'device_type': self.device_type,
-                        'channel': channel_name,
-                        'app': 'YouTubeTV',
-                        'method': 'deep_link',
-                        'is_connected': True
-                    }
+                    # Verify the app actually launched by checking active app after a brief wait
+                    await asyncio.sleep(3)
+                    active_app = await self.roku_client.get_active_app()
+                    if active_app == ytv_app_id:
+                        logger.info(f"Deep link verified: YouTube TV active on {self.device_name}")
+                        return {
+                            'status': 'success',
+                            'message': f'Tuning to {channel_name} on {self.device_name}',
+                            'device_id': self.device_id,
+                            'device_name': self.device_name,
+                            'device_type': self.device_type,
+                            'channel': channel_name,
+                            'app': 'YouTubeTV',
+                            'method': 'deep_link',
+                            'is_connected': True
+                        }
+                    else:
+                        logger.warning(f"Deep link sent but YTV not active (got {active_app}), falling back to keypress")
+                        mapper.mark_stale(channel_name)
+                        # Go Home again before fallback
+                        await self.roku_client.send_keypress('Home')
+                        await asyncio.sleep(1.5)
                 else:
                     logger.warning(f"Deep link failed for {channel_name}, falling back to keypress")
                     mapper.mark_stale(channel_name)
 
-            # Strategy 2: Keypress navigation fallback
+            # Strategy 2: Keypress navigation fallback — fresh YTV launch
             logger.info(f"Tuning to '{channel_name}' on {self.device_name} via YouTube TV keypress navigation")
 
-            # Go to Roku Home first to guarantee clean state
-            await self.roku_client.send_keypress('Home')
-            await asyncio.sleep(1)
-
-            # Launch YouTube TV fresh from Roku home screen
+            # Launch YouTube TV fresh (we're already on Home screen)
             success = await self.roku_client.launch_app(ytv_app_id)
             if not success:
-                return {
-                    'status': 'error',
-                    'message': f'Failed to launch YouTube TV on {self.device_name}',
-                    'device_id': self.device_id
-                }
-            # Wait for YouTube TV to load (profile picker is bypassed)
-            await asyncio.sleep(5)
+                # Retry once — Roku can be slow to respond
+                await asyncio.sleep(2)
+                success = await self.roku_client.launch_app(ytv_app_id)
+                if not success:
+                    return {
+                        'status': 'error',
+                        'message': f'Failed to launch YouTube TV on {self.device_name}',
+                        'device_id': self.device_id
+                    }
+
+            # Wait for YouTube TV to fully load (fresh launch from Home)
+            await asyncio.sleep(6)
 
             # Navigate to YouTube TV's Search tab
             # Menu bar: Home | Live | Library | Search — Right×3 from Home
@@ -571,19 +604,19 @@ class RokuDevice(TVDevice):
                 await self.roku_client.send_keypress('Right')
                 await asyncio.sleep(0.3)
             await self.roku_client.send_keypress('Select')  # Open Search
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(2)
 
             # Type the channel name character by character
             logger.info(f"Typing '{channel_name}' in YouTube TV search on {self.device_name}")
             await self.roku_client.type_text(channel_name)
-            await asyncio.sleep(2)  # Wait for search results to populate
+            await asyncio.sleep(2.5)  # Wait for search results to populate
 
             # Navigate to first result and select it
             await self.roku_client.send_keypress('Down')
             await asyncio.sleep(0.5)
             await self.roku_client.send_keypress('Select')
 
-            logger.info(f"Tuned to {channel_name} on {self.device_name} via YouTube TV")
+            logger.info(f"Tuned to {channel_name} on {self.device_name} via YouTube TV keypress")
 
             return {
                 'status': 'success',
@@ -593,6 +626,7 @@ class RokuDevice(TVDevice):
                 'device_type': self.device_type,
                 'channel': channel_name,
                 'app': 'YouTubeTV',
+                'method': 'keypress',
                 'is_connected': True
             }
         except Exception as e:

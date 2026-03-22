@@ -79,8 +79,6 @@
             "change to {channel_name}",
             "go to {channel_name}",
             "watch {channel_name}",
-            "turn on {channel_name}",
-            "turn to {channel_name}",
             "switch to {channel_name}",
             "tune to {channel_name} on {tv_name}",
             "tune to {channel_name} on the {tv_name}",
@@ -90,7 +88,6 @@
             "watch {channel_name} on the {tv_name}",
             "change to {channel_name} on {tv_name}",
             "switch to {channel_name} on {tv_name}",
-            "turn {channel_name} on {tv_name}",
             "I want to watch {channel_name}",
             "can you put on {channel_name}"
           ]

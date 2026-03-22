@@ -197,12 +197,16 @@ class YTVChannelMapper:
         }
 
     def mark_stale(self, channel_name: str):
-        """Mark a specific channel's videoId as stale (remove it)."""
+        """Log a stale videoId warning but keep the mapping.
+
+        VideoIds often still work on retry — the Roku or YTV app may have
+        just been slow to load.  Deleting them permanently forces every
+        future request to use slow keypress navigation until a fresh
+        browse.json is uploaded.
+        """
         name = channel_name.upper().strip()
         if name in self.mappings:
-            old_id = self.mappings.pop(name)
-            self._save_mappings()
-            logger.warning(f"Marked {name} videoId as stale (was {old_id})")
+            logger.warning(f"Deep link failed for {name} (videoId={self.mappings[name]}), keeping mapping for retry")
 
 
 # Singleton instance

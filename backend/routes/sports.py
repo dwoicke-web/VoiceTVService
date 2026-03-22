@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 sports_bp = Blueprint('sports', __name__, url_prefix='/api/sports')
 
 
+
 def _get_or_create_event_loop():
     try:
         loop = asyncio.get_event_loop()
