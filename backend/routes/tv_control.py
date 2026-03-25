@@ -436,6 +436,193 @@ def tune_channel():
         }), 500
 
 
+@tv_control_bp.route('/launch-mlb', methods=['POST'])
+def launch_mlb_game():
+    """Launch the MLB app on a Fire TV and navigate to a specific game.
+
+    Uses screen-scrape navigation:
+      1. Force-stop and relaunch the MLB app
+      2. Wait for full load, then dump the UI via uiautomator
+      3. Parse team positions to find the target game card
+      4. Navigate DOWN to games row, RIGHT x N to the card, SELECT
+
+    If mlb_game_pk is provided, also attempts deep-link first (for regular
+    season games with MLB.TV streams).
+
+    Request body:
+        - tv_id: TV identifier (upper_left, upper_right, lower_left, lower_right)
+        - away_team: Away team short name (e.g., 'Yankees')
+        - home_team: Home team short name (e.g., 'Cubs')
+        - mlb_game_pk: Optional gamePk for deep-link attempt
+        - title: Optional game title for logging
+    """
+    data = request.get_json()
+    tv_id = data.get('tv_id')
+    away_team = data.get('away_team', '')
+    home_team = data.get('home_team', '')
+    game_pk = data.get('mlb_game_pk')
+    title = data.get('title', 'MLB game')
+
+    if not tv_id:
+        return jsonify({'error': 'Missing required field: tv_id'}), 400
+
+    if not away_team and not home_team:
+        return jsonify({'error': 'Missing required field: away_team or home_team'}), 400
+
+    # Fire TV IP lookup
+    FIRE_TV_IPS = {
+        'upper_left': '192.168.4.80',
+        'upper_right': '192.168.4.78',
+        'lower_left': '192.168.4.93',
+        'lower_right': '192.168.4.108',
+    }
+    fire_tv_ip = FIRE_TV_IPS.get(tv_id)
+    if not fire_tv_ip:
+        return jsonify({'error': f'No Fire TV IP configured for {tv_id}'}), 404
+
+    try:
+        import subprocess
+
+        # Launch as separate subprocess — each TV gets its own process and ADB connection
+        launcher_script = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'apis', 'tv_control', 'mlb_launcher.py'
+        )
+        python_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'venv', 'bin', 'python3'
+        )
+
+        cmd = [python_path, launcher_script, fire_tv_ip, away_team, home_team]
+        log_file = f'/tmp/mlb_launch_{tv_id}.log'
+        logger.info(f"MLB launching subprocess for {tv_id}: {' '.join(cmd)} > {log_file}")
+        with open(log_file, 'w') as lf:
+            subprocess.Popen(cmd, stdout=lf, stderr=lf)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Launching {title} on {tv_id}',
+            'tv_id': tv_id,
+            'title': title,
+            'method': 'screen-scrape',
+            'note': 'MLB app launching — navigating to game automatically'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error launching MLB: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to launch MLB', 'message': str(e)}), 500
+
+
+@tv_control_bp.route('/launch-espn', methods=['POST'])
+def launch_espn_game():
+    """Launch the ESPN app on a Fire TV and navigate to a specific game.
+
+    Uses screen-scrape navigation directly on Fire TV (no Roku):
+      1. Launch ESPN app on Fire TV via ADB
+      2. Scroll DOWN to find the NHL row
+      3. Scroll RIGHT through games, screen-scraping each position
+      4. Select the matching game
+
+    Request body:
+        - tv_id: TV identifier (upper_left, upper_right, lower_left, lower_right)
+        - away_team: Away team short name (e.g., 'Penguins')
+        - home_team: Home team short name (e.g., 'Rangers')
+        - title: Optional game title for logging
+    """
+    data = request.get_json()
+    tv_id = data.get('tv_id')
+    away_team = data.get('away_team', '')
+    home_team = data.get('home_team', '')
+    title = data.get('title', 'ESPN+ game')
+
+    if not tv_id:
+        return jsonify({'error': 'Missing required field: tv_id'}), 400
+
+    if not away_team and not home_team:
+        return jsonify({'error': 'Missing required field: away_team or home_team'}), 400
+
+    # Fire TV IP lookup
+    FIRE_TV_IPS = {
+        'upper_left': '192.168.4.80',
+        'upper_right': '192.168.4.78',
+        'lower_left': '192.168.4.93',
+        'lower_right': '192.168.4.108',
+    }
+    fire_tv_ip = FIRE_TV_IPS.get(tv_id)
+    if not fire_tv_ip:
+        return jsonify({'error': f'No Fire TV IP configured for {tv_id}'}), 404
+
+    try:
+        import subprocess
+
+        # Launch as separate subprocess — each TV gets its own process and ADB connection
+        launcher_script = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'apis', 'tv_control', 'espn_launcher.py'
+        )
+        python_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'venv', 'bin', 'python3'
+        )
+
+        cmd = [python_path, launcher_script, fire_tv_ip, away_team, home_team]
+
+        log_file = f'/tmp/espn_launch_{tv_id}.log'
+        logger.info(f"ESPN launching subprocess for {tv_id}: {' '.join(cmd)} > {log_file}")
+        with open(log_file, 'w') as lf:
+            subprocess.Popen(cmd, stdout=lf, stderr=lf)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Launching {title} on {tv_id}',
+            'tv_id': tv_id,
+            'title': title,
+            'method': 'screen-scrape',
+            'note': 'ESPN app launching — navigating to game automatically'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error launching ESPN: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to launch ESPN', 'message': str(e)}), 500
+
+
+@tv_control_bp.route('/cancel-operations', methods=['POST'])
+def cancel_operations():
+    """Kill all running ESPN and MLB launcher subprocesses."""
+    import subprocess
+    try:
+        # Find and kill espn_launcher.py and mlb_launcher.py processes
+        result = subprocess.run(
+            ['pkill', '-f', 'espn_launcher.py|mlb_launcher.py'],
+            capture_output=True, text=True
+        )
+        killed = result.returncode == 0
+
+        # Also kill any lingering uiautomator processes on Fire TVs
+        FIRE_TV_IPS = {
+            'upper_left': '192.168.4.80',
+            'upper_right': '192.168.4.78',
+            'lower_left': '192.168.4.93',
+            'lower_right': '192.168.4.108',
+        }
+        for name, ip in FIRE_TV_IPS.items():
+            try:
+                _run_cmd = f"kill $(pgrep -f 'adb.*{ip}')"
+                subprocess.run(['bash', '-c', _run_cmd], capture_output=True, timeout=5)
+            except Exception:
+                pass
+
+        return jsonify({
+            'status': 'success',
+            'message': 'All launcher operations cancelled' if killed else 'No operations were running',
+            'killed': killed
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error cancelling operations: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @tv_control_bp.route('/reset-channel', methods=['POST'])
 def reset_channel():
     """Reset Fire TV to antenna input and tune to specified channel"""

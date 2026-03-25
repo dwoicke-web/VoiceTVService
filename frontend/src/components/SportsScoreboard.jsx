@@ -55,9 +55,26 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs }) => {
     }
 
     try {
-      // For YouTube TV broadcasts, use the tune endpoint which navigates
-      // to the channel within YouTube TV's internal search
-      if (app.app_name === 'YouTubeTV' && app.broadcast_name) {
+      // MLB games: launch MLB app on Fire TV and navigate to specific game
+      if (app.app_name === 'MLB') {
+        await axios.post('/api/tv/launch-mlb', {
+          tv_id: tvId,
+          away_team: game.away_team.short_name,
+          home_team: game.home_team.short_name,
+          mlb_game_pk: game.mlb_game_pk || null,
+          title: `${game.away_team.name} vs ${game.home_team.name}`
+        });
+      // ESPN+ games: launch ESPN app on Fire TV and navigate to specific game
+      } else if (app.app_name === 'ESPN+' || app.app_name === 'ESPN') {
+        await axios.post('/api/tv/launch-espn', {
+          tv_id: tvId,
+          away_team: game.away_team.short_name,
+          home_team: game.home_team.short_name,
+          espn_id: game.espn_id || null,
+          title: `${game.away_team.name} vs ${game.home_team.name}`
+        });
+      // YouTube TV broadcasts: tune to the channel via Roku
+      } else if (app.app_name === 'YouTubeTV' && app.broadcast_name) {
         await axios.post('/api/tv/tune', {
           tv_id: tvId,
           channel: app.broadcast_name

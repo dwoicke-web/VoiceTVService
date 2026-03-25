@@ -28,19 +28,20 @@ LEAGUES = {
 # ESPN broadcast network name -> canonical Roku app name
 # These map to the app_ids dict in roku.py
 BROADCAST_TO_APP = {
-    # ESPN family
-    'espn': 'ESPN+',
+    # ESPN family -> YouTube TV (tune to the ESPN/ESPN2/etc. channel)
+    'espn': 'YouTubeTV',
+    'espn2': 'YouTubeTV',
+    'espnu': 'YouTubeTV',
+    'espnews': 'YouTubeTV',
+    'espn deportes': 'YouTubeTV',
+    'abc': 'YouTubeTV',
+    'sec network': 'YouTubeTV',
+    'sec network+': 'YouTubeTV',
+    'acc network': 'YouTubeTV',
+    'acc network extra': 'YouTubeTV',
+    'longhorn network': 'YouTubeTV',
+    # ESPN+ (streaming-only, no YTV channel)
     'espn+': 'ESPN+',
-    'espn2': 'ESPN+',
-    'espnu': 'ESPN+',
-    'espnews': 'ESPN+',
-    'espn deportes': 'ESPN+',
-    'abc': 'ESPN+',            # ABC games available on ESPN app
-    'sec network': 'ESPN+',
-    'sec network+': 'ESPN+',
-    'acc network': 'ESPN+',
-    'acc network extra': 'ESPN+',
-    'longhorn network': 'ESPN+',
 
     # NBC/Peacock family
     'nbc': 'Peacock',
@@ -74,6 +75,13 @@ BROADCAST_TO_APP = {
     'mlbn': 'MLB',
     'mlb.tv': 'MLB',
     'mlb tv': 'MLB',
+    'mlb net': 'MLB',
+    # MLB team-specific streams (all via MLB.TV / MLB app)
+    'twins.tv': 'MLB',
+    'nationals.tv': 'MLB',
+    'rockies.tv': 'MLB',
+    'dbacks.tv': 'MLB',
+    'cleguardians.tv': 'MLB',
 
     # NBA specific
     'nba tv': 'YouTubeTV',
@@ -82,8 +90,9 @@ BROADCAST_TO_APP = {
     'nfl network': 'YouTubeTV',
     'nfl+': 'YouTubeTV',
 
-    # NHL specific
+    # NHL specific — most games on ESPN+, some on ESPN/TNT/ABC (use YouTubeTV for those)
     'nhl network': 'ESPN+',
+    'nhl net': 'ESPN+',
 
     # Amazon
     'amazon prime video': 'Prime Video',
@@ -135,6 +144,7 @@ class SportsScoreboard:
             games = self._cache[cache_key]['data']
         else:
             games = await self._fetch_from_espn(sport)
+            await self._enrich_mlb_games(games)
             self._cache[cache_key] = {'data': games, 'timestamp': time.time()}
 
         # Apply filters
@@ -271,7 +281,7 @@ class SportsScoreboard:
 
         # Extract broadcast info
         broadcasts = self._extract_broadcasts(competition)
-        watchable_apps = self._map_broadcasts_to_apps(broadcasts)
+        watchable_apps = self._map_broadcasts_to_apps(broadcasts, league_name)
 
         # Venue
         venue = competition.get('venue', {})
@@ -283,8 +293,9 @@ class SportsScoreboard:
         else:
             title = f"{away_team['short_name']} @ {home_team['short_name']}"
 
-        return {
+        game_data = {
             'id': f"espn_{event.get('id', '')}",
+            'espn_id': str(event.get('id', '')),
             'title': title,
             'home_team': home_team,
             'away_team': away_team,
@@ -298,6 +309,8 @@ class SportsScoreboard:
             'watchable_apps': watchable_apps,
             'espn_link': '',
         }
+
+        return game_data
 
     def _extract_broadcasts(self, competition: Dict) -> List[str]:
         """Extract broadcast network names from competition data.
@@ -341,15 +354,20 @@ class SportsScoreboard:
 
         return networks
 
-    def _map_broadcasts_to_apps(self, networks: List[str]) -> List[Dict[str, str]]:
-        """Map broadcast network names to launchable Roku apps.
+    def _map_broadcasts_to_apps(self, networks: List[str],
+                                league: str = '') -> List[Dict[str, str]]:
+        """Map broadcast network names to launchable apps.
+
+        For MLB games: default to MLB app (Fire TV) unless broadcast is on
+        ESPN/Fox/Peacock/Apple TV (use YouTubeTV via Roku for those).
+        For all other leagues: default to YouTubeTV.
 
         Returns list of {app_name, app_display, network} dicts.
         """
         apps = []
         seen_apps = set()
 
-        # Roku app IDs (duplicated from roku.py to avoid circular import)
+        # App IDs (duplicated from roku.py to avoid circular import)
         APP_IDS = {
             'YouTubeTV': '195316',
             'ESPN+': '34376',
@@ -374,15 +392,86 @@ class SportsScoreboard:
                     'broadcast_name': network,  # Channel name for YouTube TV tuning
                 })
 
-        # If no specific mapping found, default to YouTube TV
+        # Default when no broadcast mapping found
         if not apps:
-            apps.append({
-                'app_name': DEFAULT_APP,
-                'app_id': APP_IDS.get(DEFAULT_APP, ''),
-                'network': 'YouTube TV',
-            })
+            if league == 'MLB':
+                # MLB games default to MLB app on Fire TV
+                apps.append({
+                    'app_name': 'MLB',
+                    'app_id': APP_IDS.get('MLB', ''),
+                    'network': 'MLB.TV',
+                })
+            elif league == 'NHL':
+                # NHL games default to ESPN+ on Fire TV
+                apps.append({
+                    'app_name': 'ESPN+',
+                    'app_id': APP_IDS.get('ESPN+', ''),
+                    'network': 'ESPN+',
+                })
+            else:
+                apps.append({
+                    'app_name': DEFAULT_APP,
+                    'app_id': APP_IDS.get(DEFAULT_APP, ''),
+                    'network': 'YouTube TV',
+                })
+
 
         return apps
+
+    async def _enrich_mlb_games(self, games: List[Dict[str, Any]]) -> None:
+        """Cross-reference MLB games with the MLB Stats API to get gamePk values.
+
+        The gamePk is required for deep linking into the MLB Fire TV app via:
+            am start -a android.intent.action.VIEW -d "mlbatbat://mlbtv/?gamePk=<gamePk>"
+        """
+        mlb_games = [g for g in games if g.get('league') == 'MLB']
+        if not mlb_games:
+            return
+
+        try:
+            from datetime import date
+            today = date.today().strftime('%Y-%m-%d')
+            url = f'https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}'
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"MLB Stats API returned {resp.status}")
+                        return
+                    data = await resp.json()
+
+            # Build lookup: (away_team_name_lower, home_team_name_lower) -> gamePk
+            mlb_lookup = {}
+            for d in data.get('dates', []):
+                for g in d.get('games', []):
+                    away = g['teams']['away']['team']['name'].lower()
+                    home = g['teams']['home']['team']['name'].lower()
+                    mlb_lookup[(away, home)] = g['gamePk']
+
+            # Match ESPN games to MLB gamePks by team names
+            for game in mlb_games:
+                away_name = game.get('away_team', {}).get('name', '').lower()
+                home_name = game.get('home_team', {}).get('name', '').lower()
+
+                # Try exact match first
+                game_pk = mlb_lookup.get((away_name, home_name))
+
+                # Fuzzy match — check if team names are substrings
+                if not game_pk:
+                    for (away, home), pk in mlb_lookup.items():
+                        if (away_name in away or away in away_name) and \
+                           (home_name in home or home in home_name):
+                            game_pk = pk
+                            break
+
+                if game_pk:
+                    game['mlb_game_pk'] = game_pk
+                    logger.debug(f"MLB gamePk {game_pk} matched to {game.get('title')}")
+                else:
+                    logger.warning(f"No MLB gamePk found for {game.get('title')}")
+
+        except Exception as e:
+            logger.warning(f"MLB Stats API enrichment failed: {e}")
 
     def _game_matches_team(self, game: Dict, team_lower: str) -> bool:
         """Check if a game involves the given team"""

@@ -181,6 +181,20 @@ const Dashboard = () => {
     }
   };
 
+  const handleCancelAll = async () => {
+    try {
+      setIsLoading(true);
+      await axios.post('/api/tv/cancel-operations');
+      alert('All launcher operations cancelled');
+      setError(null);
+    } catch (err) {
+      console.error('Error cancelling operations:', err);
+      setError('Failed to cancel operations');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handlePowerAll = async (action) => {
     try {
       console.log(`[DEBUG] Power ${action} button clicked`);
@@ -230,6 +244,14 @@ const Dashboard = () => {
           title="Power off all 4 Fire TVs"
         >
           ⏹️ Power Off All
+        </button>
+        <button
+          onClick={handleCancelAll}
+          disabled={isLoading}
+          className="cancel-btn"
+          title="Cancel all running ESPN/MLB launcher operations"
+        >
+          Cancel All Operations
         </button>
       </div>
 

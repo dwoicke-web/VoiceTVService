@@ -6,6 +6,8 @@ const CHANNELS = [
   { name: 'ESPN', icon: '⚽' },
   { name: 'ESPN2', icon: '⚽' },
   { name: 'ESPN News', icon: '⚽' },
+  { name: 'ESPNU', icon: '⚽' },
+  { name: 'CBS Sports Network', icon: '⚽' },
   { name: 'Fox News', icon: '📰' },
   { name: 'CNN', icon: '📰' },
   { name: 'MSNBC', icon: '📰' },

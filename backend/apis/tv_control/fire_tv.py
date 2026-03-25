@@ -135,7 +135,7 @@ class FireTVDevice(TVDevice):
         self.app_packages = {
             'YouTubeTV': 'com.google.android.tvlauncher.firetv',
             'Peacock': 'com.peacocktv.peacockandroid',
-            'ESPN+': 'com.espn.andclient',
+            'ESPN+': 'com.espn.gtv',
             'Prime Video': 'com.amazon.amazonvideo.livingroom',
             'HBO Max': 'com.hbo.hbomax',
             'YouTube': 'com.google.android.youtube.tv',

@@ -175,15 +175,17 @@ class YTVChannelMapper:
         if name in self.mappings:
             return self.mappings[name]
 
-        # Try common variations
+        # Try common variations — without spaces/special chars
+        # (e.g., "ESPN NEWS" matches "ESPNEWS")
         for stored_name, video_id in self.mappings.items():
-            # Without spaces/special chars (e.g., "ESPN NEWS" matches "ESPNEWS")
             if name.replace(' ', '') == stored_name.replace(' ', ''):
                 return video_id
 
+        # Prefix match only — stored name must START with the search term
+        # Prevents "CBS" from matching "CBS SPORTS NETWORK"
+        # Only match if search term is a meaningful prefix (e.g., "ESPN" → "ESPN HD")
         for stored_name, video_id in self.mappings.items():
-            # Substring match (e.g., "ESPN" matches "ESPN HD")
-            if name in stored_name or stored_name in name:
+            if stored_name.startswith(name + ' ') or name.startswith(stored_name + ' '):
                 return video_id
 
         return None
