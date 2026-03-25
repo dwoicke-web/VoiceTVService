@@ -9,11 +9,23 @@ const TVLayout = ({ selectedTV, onSelectTV, tvs, playingContent = {}, onResetCha
     if (playing) {
       return (
         <div className="tv-content playing">
-          <img
-            src={playing.poster}
-            alt={playing.title}
-            className="now-playing-poster"
-          />
+          {playing.poster ? (
+            <img
+              src={playing.poster}
+              alt={playing.title}
+              className="now-playing-poster"
+            />
+          ) : (
+            <div className="now-playing-icon">
+              {playing.service === 'ESPN+' || playing.service === 'ESPN' ? '🏒' :
+               playing.service === 'MLB' ? '⚾' :
+               playing.service === 'YouTubeTV' ? '📺' :
+               playing.service === 'Netflix' ? '🎬' :
+               playing.service === 'Disney+' ? '🏰' :
+               playing.service === 'HBO Max' ? '🎭' :
+               playing.service === 'Prime Video' ? '📦' : '▶'}
+            </div>
+          )}
           <div className="now-playing-info">
             <div className="now-playing-title">{playing.title}</div>
             <div className="now-playing-service">{playing.service}</div>

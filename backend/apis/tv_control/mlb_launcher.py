@@ -41,11 +41,24 @@ def log(msg):
     print(f"[MLB] {msg}", file=sys.stderr, flush=True)
 
 
+def _adb(ip, cmd):
+    """Run ADB command with retry. Fire TV ADB daemon gets sluggish during heavy apps."""
+    for attempt in range(3):
+        try:
+            return _run_adb_command(ip, cmd, timeout=ADB_TIMEOUT)
+        except Exception as e:
+            if attempt < 2:
+                log(f"ADB retry {attempt + 1} for '{cmd[:50]}': {e}")
+                time.sleep(5)
+            else:
+                raise
+
+
 def _dump_ui(ip):
     """Dump UI and return XML string."""
-    _run_adb_command(ip, 'uiautomator dump /sdcard/ui.xml 2>&1', timeout=ADB_TIMEOUT)
+    _adb(ip, 'uiautomator dump /sdcard/ui.xml 2>&1')
     time.sleep(1)
-    return _run_adb_command(ip, 'cat /sdcard/ui.xml', timeout=ADB_TIMEOUT)
+    return _adb(ip, 'cat /sdcard/ui.xml')
 
 
 def _parse_game_grid(xml):
@@ -113,7 +126,7 @@ def _parse_game_grid(xml):
 
 def _navigate_to_games_tab(ip):
     """Navigate to Games tab: UP -> verify -> select. Returns True if game tiles found."""
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_UP', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_UP')
     log("UP to nav bar")
     time.sleep(1)
 
@@ -145,13 +158,13 @@ def _navigate_to_games_from_nav(ip):
     """From the nav bar, navigate LEFT to Home first, then RIGHT to Games, verify, and select."""
     # Go all the way LEFT to ensure we're on Home (leftmost tab)
     for _ in range(5):
-        _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_LEFT', timeout=ADB_TIMEOUT)
+        _adb(ip, 'input keyevent KEYCODE_DPAD_LEFT')
         time.sleep(0.3)
     log("Navigated LEFT to Home tab")
     time.sleep(0.5)
 
     # Now go RIGHT to Games tab — it's typically 1 right of Home
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_RIGHT', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_RIGHT')
     time.sleep(0.5)
 
     # Verify we're on Games by checking focused tab text
@@ -163,14 +176,14 @@ def _navigate_to_games_from_nav(ip):
         log("Confirmed on Games tab")
     else:
         # Try one more RIGHT in case layout differs
-        _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_RIGHT', timeout=ADB_TIMEOUT)
+        _adb(ip, 'input keyevent KEYCODE_DPAD_RIGHT')
         time.sleep(0.5)
         xml = _dump_ui(ip)
         focused_tab = _find_focused_tab(xml)
         log(f"Focused tab after 2nd RIGHT: '{focused_tab}'")
 
     # Select the tab
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_CENTER', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
     log("Selected tab, waiting 12s for load")
     time.sleep(12)
 
@@ -249,10 +262,10 @@ def _select_watch_live(ip, target_team):
             watch_live_downs = wl_pos
 
     for _ in range(watch_live_downs):
-        _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_DOWN', timeout=ADB_TIMEOUT)
+        _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
         time.sleep(0.5)
 
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_CENTER', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
     log("Hit Watch Live")
     return {'success': True, 'team': target_team}
 
@@ -260,9 +273,9 @@ def _select_watch_live(ip, target_team):
 def _retry_games_tab(ip):
     """BACK -> UP -> navigate to Games tab with verification."""
     log("Retrying: BACK -> UP -> find Games tab")
-    _run_adb_command(ip, 'input keyevent KEYCODE_BACK', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_BACK')
     time.sleep(2)
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_UP', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_UP')
     time.sleep(1)
 
     return _navigate_to_games_from_nav(ip)
@@ -280,26 +293,33 @@ def _wake_tv(ip):
         time.sleep(3)
 
     try:
-        _run_adb_command(ip, 'input keyevent KEYCODE_WAKEUP', timeout=ADB_TIMEOUT)
+        _adb(ip, 'input keyevent KEYCODE_WAKEUP')
         log("Sent ADB WAKEUP")
     except Exception as e:
         log(f"ADB WAKEUP failed: {e}")
     time.sleep(2)
 
 
-def launch_game(ip, away_team, home_team):
-    target_team = away_team or home_team
+def _reset_to_mlb_home(ip):
+    """Reset to MLB home screen — known good starting point for retry."""
+    log("Resetting to MLB home...")
+    _adb(ip, f'am force-stop {MLB_PKG}')
+    time.sleep(2)
+    _adb(ip, f'am start -n {MLB_ACTIVITY}')
+    log("Waiting 10s for MLB to reload...")
+    time.sleep(10)
 
-    # Phase 0: Wake the Fire TV
-    _wake_tv(ip)
+
+def _attempt_launch(ip, target_team):
+    """Single attempt to find and launch the target game. Returns result dict or None to retry."""
 
     # Phase 1: Launch app and navigate to Games tab
     log(f"Force-stopping MLB on {ip}")
-    _run_adb_command(ip, f'am force-stop {MLB_PKG}', timeout=ADB_TIMEOUT)
+    _adb(ip, f'am force-stop {MLB_PKG}')
     time.sleep(2)
 
     log(f"Starting MLB app on {ip}")
-    _run_adb_command(ip, f'am start -n {MLB_ACTIVITY}', timeout=ADB_TIMEOUT)
+    _adb(ip, f'am start -n {MLB_ACTIVITY}')
     time.sleep(8)
 
     # Try to get to Games tab, retry up to 3 times
@@ -312,12 +332,12 @@ def launch_game(ip, away_team, home_team):
                 break
 
     if not got_games:
-        return {'error': 'Could not load Games tab after retries'}
+        return None  # Signal outer loop to do full restart
 
     log("Game tiles loaded successfully")
 
     # Phase 2: Enter the grid, find target game, navigate to it, verify, select
-    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_DOWN', timeout=ADB_TIMEOUT)
+    _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
     log("DOWN to enter grid")
     time.sleep(1)
 
@@ -340,11 +360,11 @@ def launch_game(ip, away_team, home_team):
             # If we lost the games grid entirely, recover
             if not rows:
                 log("Lost games grid — recovering")
-                _run_adb_command(ip, 'input keyevent KEYCODE_BACK', timeout=ADB_TIMEOUT)
+                _adb(ip, 'input keyevent KEYCODE_BACK')
                 time.sleep(2)
                 got_games = _retry_games_tab(ip)
                 if got_games:
-                    _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_DOWN', timeout=ADB_TIMEOUT)
+                    _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
                     time.sleep(1)
                 continue
 
@@ -374,7 +394,7 @@ def launch_game(ip, away_team, home_team):
 
             if target_row is None:
                 # Target not visible — scroll and try again
-                _run_adb_command(ip, f'input keyevent {key_dir}', timeout=ADB_TIMEOUT)
+                _adb(ip, f'input keyevent {key_dir}')
                 time.sleep(0.5)
                 continue
 
@@ -391,12 +411,12 @@ def launch_game(ip, away_team, home_team):
 
             for _ in range(abs(row_diff)):
                 key = 'KEYCODE_DPAD_DOWN' if row_diff > 0 else 'KEYCODE_DPAD_UP'
-                _run_adb_command(ip, f'input keyevent {key}', timeout=ADB_TIMEOUT)
+                _adb(ip, f'input keyevent {key}')
                 time.sleep(0.5)
 
             for _ in range(abs(col_diff)):
                 key = 'KEYCODE_DPAD_RIGHT' if col_diff > 0 else 'KEYCODE_DPAD_LEFT'
-                _run_adb_command(ip, f'input keyevent {key}', timeout=ADB_TIMEOUT)
+                _adb(ip, f'input keyevent {key}')
                 time.sleep(0.5)
 
             # ── VERIFY: fresh dump to confirm we're on the right card ──
@@ -415,23 +435,23 @@ def launch_game(ip, away_team, home_team):
                     if not card_has_target:
                         log(f"WARNING: focused card {focused_card_teams} does NOT contain {target_team}!")
                         log("Aborting selection — will retry from Games tab")
-                        _run_adb_command(ip, 'input keyevent KEYCODE_BACK', timeout=ADB_TIMEOUT)
+                        _adb(ip, 'input keyevent KEYCODE_BACK')
                         time.sleep(2)
                         got_games = _retry_games_tab(ip)
                         if got_games:
-                            _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_DOWN', timeout=ADB_TIMEOUT)
+                            _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
                             time.sleep(1)
                         continue
                 else:
                     log(f"Verification: could not determine focused card (vf_row={vf_row}, vf_col={vf_col})")
 
             # ── SELECT game card ──
-            _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_CENTER', timeout=ADB_TIMEOUT)
+            _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
             log(f"Selected game card for {target_team}")
             time.sleep(2)
 
             # SELECT broadcast
-            _run_adb_command(ip, 'input keyevent KEYCODE_DPAD_CENTER', timeout=ADB_TIMEOUT)
+            _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
             log("Selected broadcast")
             time.sleep(3)
 
@@ -442,7 +462,32 @@ def launch_game(ip, away_team, home_team):
         stuck_count = 0
         last_cards_str = None
 
-    return {'error': f'Could not find {target_team} after scanning both directions'}
+    return None  # Signal outer loop to do full restart
+
+
+def launch_game(ip, away_team, home_team):
+    target_team = away_team or home_team
+
+    for attempt in range(3):
+        if attempt > 0:
+            log(f"=== RETRY {attempt} — resetting to MLB home ===")
+            _reset_to_mlb_home(ip)
+        else:
+            # Phase 0: Wake the Fire TV
+            _wake_tv(ip)
+
+        try:
+            result = _attempt_launch(ip, target_team)
+        except Exception as e:
+            log(f"Attempt {attempt + 1} failed with exception: {e}")
+            result = None
+
+        if result and 'success' in result:
+            return result
+
+        log(f"Attempt {attempt + 1} did not succeed, will retry")
+
+    return {'error': f'Could not find or launch {target_team} after 3 attempts'}
 
 
 if __name__ == '__main__':

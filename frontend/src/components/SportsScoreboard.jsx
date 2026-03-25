@@ -7,7 +7,7 @@ const LEAGUE_PARAM = { 'All': null, 'NHL': 'nhl', 'NBA': 'nba', 'MLB': 'mlb', 'N
 const STATUS_LABELS = { 'all': 'All Games', 'live': '🔴 Live', 'upcoming': 'Upcoming', 'final': 'Final' };
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
-const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs }) => {
+const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs, onGameLaunched }) => {
   const [games, setGames] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -89,6 +89,10 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs }) => {
       }
 
       const tvName = tvs?.find(t => t.id === tvId)?.name || tvId;
+      const gameTitle = `${game.away_team.short_name} vs ${game.home_team.short_name}`;
+      if (onGameLaunched) {
+        onGameLaunched(tvId, app.app_name, gameTitle);
+      }
       alert(`Launching ${app.app_name} on ${tvName}!`);
     } catch (err) {
       console.error('Error launching game:', err);

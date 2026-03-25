@@ -19,10 +19,31 @@ const Dashboard = () => {
   const [lastSearchQuery, setLastSearchQuery] = useState('');
   const [playingContent, setPlayingContent] = useState({}); // Track what's playing on each TV
 
-  // Fetch available TVs on component mount
+  // Fetch available TVs and now-playing state on component mount
   useEffect(() => {
     fetchTVs();
+    fetchNowPlaying();
   }, []);
+
+  const fetchNowPlaying = async () => {
+    try {
+      const response = await axios.get('/api/tv/now-playing');
+      const data = response.data;
+      // Convert backend format to frontend playingContent format
+      const content = {};
+      for (const [tvId, info] of Object.entries(data)) {
+        content[tvId] = {
+          title: info.title,
+          service: info.service,
+          channel: info.channel,
+          started_at: info.started_at,
+        };
+      }
+      setPlayingContent(content);
+    } catch (err) {
+      console.error('Error fetching now-playing:', err);
+    }
+  };
 
   const fetchTVs = async () => {
     try {
@@ -143,6 +164,11 @@ const Dashboard = () => {
         tv_id: tvId,
         channel: channelName
       });
+      // Update TV tile immediately
+      setPlayingContent(prev => ({
+        ...prev,
+        [tvId]: { title: channelName, service: 'YouTubeTV', channel: channelName }
+      }));
     } catch (err) {
       console.error('Error tuning channel:', err);
       setError(`Failed to tune to ${channelName}`);
@@ -169,6 +195,13 @@ const Dashboard = () => {
       const response = await axios.post('/api/tv/reset-channel', {
         tv_id: tv.id,
         channel: channel
+      });
+
+      // Clear now-playing for this TV
+      setPlayingContent(prev => {
+        const updated = { ...prev };
+        delete updated[tv.id];
+        return updated;
       });
 
       alert(`✅ Reset ${tv.name} to antenna channel ${channel}`);
@@ -208,6 +241,9 @@ const Dashboard = () => {
       console.log(`[DEBUG] API response:`, response.data);
       const devicesAffected = response.data.devices_affected;
       const actionText = action === 'on' ? 'powered on' : 'powered off';
+      if (action === 'off') {
+        setPlayingContent({});
+      }
       alert(`✅ All ${devicesAffected} Fire TVs ${actionText}`);
       setError(null);
     } catch (err) {
@@ -314,12 +350,24 @@ const Dashboard = () => {
       <ChannelPicker
         selectedTV={selectedTV}
         tvs={tvs}
+        onChannelTuned={(tvId, channelName) => {
+          setPlayingContent(prev => ({
+            ...prev,
+            [tvId]: { title: channelName, service: 'YouTubeTV', channel: channelName }
+          }));
+        }}
       />
 
       <SportsScoreboard
         selectedTV={selectedTV}
         tvs={tvs}
         onTuneChannel={handleTuneChannel}
+        onGameLaunched={(tvId, service, title) => {
+          setPlayingContent(prev => ({
+            ...prev,
+            [tvId]: { title, service }
+          }));
+        }}
       />
 
       <YTVChannelManager />

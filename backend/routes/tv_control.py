@@ -18,6 +18,7 @@ from apis.tv_control import get_tv_manager
 from apis.tv_control.smartthings import SamsungSmartThingsDevice
 from apis.tv_control.fire_tv import FireTVDevice
 from apis.tv_control.roku import RokuDevice
+from apis.tv_control.now_playing import set_now_playing, clear_now_playing, clear_all as clear_all_now_playing, get_now_playing
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -133,6 +134,9 @@ def launch_content():
         # on its assigned antenna channel (7, 8, 10, or 11 depending on TV position)
         loop = _get_or_create_event_loop()
         result = loop.run_until_complete(roku_device.launch_app(service, content_id, title=title))
+
+        # Track what's now playing
+        set_now_playing(tv_id, service, title or content_id)
 
         # Add Fire TV info to response
         result['tv_id'] = tv_id
@@ -356,6 +360,10 @@ def power_all():
         # Count successes
         successful = sum(1 for r in results.values() if r.get('status') == 'success')
 
+        # Clear now-playing state on power off
+        if action == 'off' and successful > 0:
+            clear_all_now_playing()
+
         return jsonify({
             'status': 'success' if successful > 0 else 'partial',
             'action': action,
@@ -419,6 +427,9 @@ def tune_channel():
 
         thread = threading.Thread(target=_bg_tune, daemon=True)
         thread.start()
+
+        # Track what's now playing
+        set_now_playing(tv_id, 'YouTubeTV', channel, channel=channel)
 
         return jsonify({
             'status': 'success',
@@ -499,6 +510,9 @@ def launch_mlb_game():
         with open(log_file, 'w') as lf:
             subprocess.Popen(cmd, stdout=lf, stderr=lf)
 
+        # Track what's now playing
+        set_now_playing(tv_id, 'MLB', title)
+
         return jsonify({
             'status': 'success',
             'message': f'Launching {title} on {tv_id}',
@@ -572,6 +586,9 @@ def launch_espn_game():
         with open(log_file, 'w') as lf:
             subprocess.Popen(cmd, stdout=lf, stderr=lf)
 
+        # Track what's now playing
+        set_now_playing(tv_id, 'ESPN+', title)
+
         return jsonify({
             'status': 'success',
             'message': f'Launching {title} on {tv_id}',
@@ -623,6 +640,12 @@ def cancel_operations():
         return jsonify({'error': str(e)}), 500
 
 
+@tv_control_bp.route('/now-playing', methods=['GET'])
+def now_playing():
+    """Get what's currently playing on all TVs."""
+    return jsonify(get_now_playing()), 200
+
+
 @tv_control_bp.route('/reset-channel', methods=['POST'])
 def reset_channel():
     """Reset Fire TV to antenna input and tune to specified channel"""
@@ -666,6 +689,9 @@ def reset_channel():
                 'device_id': device_id
             }
             future.cancel()
+
+        # Clear now-playing on reset (back to antenna)
+        clear_now_playing(device_id)
 
         status_code = 200 if result.get('status') == 'success' else 500
         return jsonify(result), status_code

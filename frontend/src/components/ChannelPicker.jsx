@@ -45,7 +45,7 @@ const CHANNELS = [
   { name: 'Animal Planet', icon: '🐾' },
 ];
 
-const ChannelPicker = ({ selectedTV, tvs }) => {
+const ChannelPicker = ({ selectedTV, tvs, onChannelTuned }) => {
   const [tuningChannel, setTuningChannel] = useState(null);
   const [isCollapsed, setIsCollapsed] = useState(true);
 
@@ -61,6 +61,9 @@ const ChannelPicker = ({ selectedTV, tvs }) => {
         tv_id: tvId,
         channel: channelName
       });
+      if (onChannelTuned) {
+        onChannelTuned(tvId, channelName);
+      }
     } catch (err) {
       console.error('Error tuning channel:', err);
       alert(`Failed to tune to ${channelName}`);
