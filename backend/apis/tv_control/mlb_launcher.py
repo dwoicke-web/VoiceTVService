@@ -36,6 +36,59 @@ MLB_TEAMS = {
     'reds', 'rockies', 'royals', 'tigers', 'twins', 'white sox', 'yankees',
 }
 
+# Map city/abbreviation/alternate names to team name as shown in MLB app
+MLB_TEAM_ALIASES = {
+    'det': 'tigers', 'detroit': 'tigers',
+    'nyy': 'yankees', 'new york yankees': 'yankees', 'ny yankees': 'yankees',
+    'nym': 'mets', 'new york mets': 'mets', 'ny mets': 'mets',
+    'bos': 'red sox', 'boston': 'red sox',
+    'lad': 'dodgers', 'la dodgers': 'dodgers', 'los angeles dodgers': 'dodgers',
+    'laa': 'angels', 'la angels': 'angels', 'los angeles angels': 'angels',
+    'sf': 'giants', 'san francisco': 'giants',
+    'sd': 'padres', 'san diego': 'padres',
+    'stl': 'cardinals', 'st. louis': 'cardinals', 'st louis': 'cardinals',
+    'tb': 'rays', 'tampa bay': 'rays', 'tampa': 'rays',
+    'tor': 'blue jays', 'toronto': 'blue jays',
+    'min': 'twins', 'minnesota': 'twins',
+    'mil': 'brewers', 'milwaukee': 'brewers',
+    'tex': 'rangers', 'texas': 'rangers',
+    'kc': 'royals', 'kansas city': 'royals',
+    'cle': 'guardians', 'cleveland': 'guardians',
+    'chi': 'cubs', 'chc': 'cubs', 'chicago cubs': 'cubs',
+    'cws': 'white sox', 'chw': 'white sox', 'chicago white sox': 'white sox',
+    'atl': 'braves', 'atlanta': 'braves',
+    'hou': 'astros', 'houston': 'astros',
+    'sea': 'mariners', 'seattle': 'mariners',
+    'oak': 'athletics', 'oakland': 'athletics',
+    'pit': 'pirates', 'pittsburgh': 'pirates',
+    'phi': 'phillies', 'philadelphia': 'phillies',
+    'was': 'nationals', 'wsh': 'nationals', 'washington': 'nationals',
+    'ari': 'diamondbacks', 'arizona': 'diamondbacks', 'd-backs': 'diamondbacks',
+    'col': 'rockies', 'colorado': 'rockies',
+    'mia': 'marlins', 'miami': 'marlins',
+    'bal': 'orioles', 'baltimore': 'orioles',
+    'cin': 'reds', 'cincinnati': 'reds',
+}
+
+
+def _normalize_team(name):
+    """Normalize a team name/abbreviation to the name shown in the MLB app."""
+    lower = name.strip().lower()
+    # Direct match in team set
+    if lower in MLB_TEAMS:
+        return lower
+    # Alias lookup
+    if lower in MLB_TEAM_ALIASES:
+        return MLB_TEAM_ALIASES[lower]
+    # Partial match — check if any team name contains the input or vice versa
+    for team in MLB_TEAMS:
+        if lower in team or team in lower:
+            return team
+    for alias, team in MLB_TEAM_ALIASES.items():
+        if lower in alias or alias in lower:
+            return team
+    return lower  # Return as-is, best effort
+
 
 def log(msg):
     print(f"[MLB] {msg}", file=sys.stderr, flush=True)
@@ -43,13 +96,14 @@ def log(msg):
 
 def _adb(ip, cmd):
     """Run ADB command with retry. Fire TV ADB daemon gets sluggish during heavy apps."""
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             return _run_adb_command(ip, cmd, timeout=ADB_TIMEOUT)
         except Exception as e:
-            if attempt < 2:
-                log(f"ADB retry {attempt + 1} for '{cmd[:50]}': {e}")
-                time.sleep(5)
+            if attempt < 4:
+                delay = 5 + attempt * 2  # 5, 7, 9, 11 seconds
+                log(f"ADB retry {attempt + 1} for '{cmd[:50]}': {e} (wait {delay}s)")
+                time.sleep(delay)
             else:
                 raise
 
@@ -61,30 +115,75 @@ def _dump_ui(ip):
     return _adb(ip, 'cat /sdcard/ui.xml')
 
 
+def _get_all_texts(xml):
+    """Extract all visible text from UI XML — both text="" and content-desc="".
+
+    MLB app may use either attribute for game info.
+    Returns list of (text, x1, y1, x2, y2).
+    """
+    if not xml:
+        return []
+
+    results = []
+    seen = set()
+
+    # Get text="" attributes with bounds
+    for t, x1, y1, x2, y2 in re.findall(
+        r'text="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml
+    ):
+        key = (t, x1, y1)
+        if key not in seen:
+            seen.add(key)
+            results.append((t, int(x1), int(y1), int(x2), int(y2)))
+
+    # Get content-desc="" attributes with bounds (both attribute orders)
+    for desc, x1, y1, x2, y2 in re.findall(
+        r'content-desc="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml
+    ):
+        key = (desc, x1, y1)
+        if key not in seen:
+            seen.add(key)
+            results.append((desc, int(x1), int(y1), int(x2), int(y2)))
+
+    for x1, y1, x2, y2, desc in re.findall(
+        r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*content-desc="([^"]+)"', xml
+    ):
+        key = (desc, x1, y1)
+        if key not in seen:
+            seen.add(key)
+            results.append((desc, int(x1), int(y1), int(x2), int(y2)))
+
+    return results
+
+
 def _parse_game_grid(xml):
     """Parse game cards from Games tab grid.
 
+    Checks BOTH text and content-desc attributes for team names.
     Returns list of rows, each row is a list of game cards (left to right).
-    Each card is a list of team names.
-    Example: [[['White Sox', 'Athletics'], ['Royals', 'Rangers'], ['Tigers', 'Rockies']],
-              [['Angels', 'Dodgers'], ['Guardians', 'D-backs'], ['Rays', 'Phillies']]]
+    Each card is a dict: {'teams': [...], 'x1': int, 'y1': int, 'x2': int, 'y2': int, 'center_x': int, 'center_y': int}
+    Example: [[{'teams': ['White Sox', 'Athletics'], 'center_x': 200, 'center_y': 300, ...}, ...], ...]
     """
-    nodes = re.findall(
-        r'text="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-        xml
-    )
+    all_texts = _get_all_texts(xml)
 
-    # Find y-positions that contain known MLB team names
+    # Find nodes that contain known MLB team names
     team_nodes = []
-    for text, x1, y1, x2, y2 in nodes:
-        if text.strip().lower() in MLB_TEAMS:
-            team_nodes.append((int(x1), int(y1), text.strip()))
+    for text, x1, y1, x2, y2 in all_texts:
+        clean = text.strip().lower()
+        if clean in MLB_TEAMS:
+            team_nodes.append((x1, y1, x2, y2, text.strip()))
+        else:
+            # Also check if a content-desc contains a team name as part of a longer string
+            for team in MLB_TEAMS:
+                if team in clean and len(clean) < 80:  # Avoid giant strings
+                    team_nodes.append((x1, y1, x2, y2, text.strip()))
+                    break
 
     if not team_nodes:
         return []
 
     # Group y-positions into rows (team names within ~100px are same row)
-    all_ys = sorted(set(y for _, y, _ in team_nodes))
+    all_ys = sorted(set(y for _, y, _, _, _ in team_nodes))
     y_groups = []
     for y in all_ys:
         placed = False
@@ -99,29 +198,63 @@ def _parse_game_grid(xml):
     # Sort row groups by minimum y
     y_groups.sort(key=lambda g: min(g))
 
+    # Pair up rows: each game card has TWO team names stacked vertically
+    # Group consecutive y-groups that are close (within 200px) as one card row
+    card_row_groups = []
+    for yg in y_groups:
+        if card_row_groups and abs(min(yg) - max(card_row_groups[-1][-1])) < 200:
+            card_row_groups[-1].append(yg)
+        else:
+            card_row_groups.append([yg])
+
     rows = []
-    for y_group in y_groups:
-        y_set = set(y_group)
-        # Get all team nodes in this row group
-        row_teams = [(x, text) for x, y, text in team_nodes if y in y_set]
+    for card_row in card_row_groups:
+        y_set = set()
+        for yg in card_row:
+            y_set.update(yg)
+
+        # Get all team nodes in this card row
+        row_teams = [(x1, y1, x2, y2, name) for x1, y1, x2, y2, name in team_nodes if y1 in y_set]
         row_teams.sort(key=lambda t: t[0])
 
-        # Group by x-position (cards ~350-600px apart)
-        card_xs = sorted(set(x for x, _ in row_teams))
-        # Merge x positions that are close (within 50px)
+        # Group by x-position into cards (teams within 80px horizontally are same card)
+        card_xs = sorted(set(x for x, _, _, _, _ in row_teams))
         merged_xs = []
         for x in card_xs:
-            if merged_xs and abs(x - merged_xs[-1]) < 50:
+            if merged_xs and abs(x - merged_xs[-1]) < 80:
                 continue
             merged_xs.append(x)
 
         cards = []
         for cx in merged_xs:
-            teams = [name for x, name in row_teams if abs(x - cx) < 50]
-            cards.append(teams)
+            card_teams = [(x1, y1, x2, y2, name) for x1, y1, x2, y2, name in row_teams if abs(x1 - cx) < 80]
+            if card_teams:
+                # Get the bounding box of the whole card area
+                min_x = min(t[0] for t in card_teams)
+                min_y = min(t[1] for t in card_teams)
+                max_x = max(t[2] for t in card_teams)
+                max_y = max(t[3] for t in card_teams)
+                cards.append({
+                    'teams': [t[4] for t in card_teams],
+                    'x1': min_x, 'y1': min_y, 'x2': max_x, 'y2': max_y,
+                    'center_x': (min_x + max_x) // 2,
+                    'center_y': (min_y + max_y) // 2,
+                })
         rows.append(cards)
 
     return rows
+
+
+def _log_grid(rows, focused_pos=None):
+    """Pretty-print the game grid with position labels and highlight focus."""
+    log("=" * 60)
+    log(f"GAME GRID: {len(rows)} rows")
+    for ri, row in enumerate(rows):
+        for ci, card in enumerate(row):
+            marker = " <<<< FOCUSED" if focused_pos == (ri, ci) else ""
+            teams_str = " vs ".join(card['teams'])
+            log(f"  [{ri},{ci}] {teams_str}  (x={card['center_x']}, y={card['center_y']}){marker}")
+    log("=" * 60)
 
 
 def _navigate_to_games_tab(ip):
@@ -193,81 +326,131 @@ def _navigate_to_games_from_nav(ip):
     return False
 
 
+def _get_focused_bounds(xml):
+    """Get bounds of ALL focused elements (there may be nested focused containers)."""
+    if not xml:
+        return []
+
+    bounds = []
+    for pattern in [
+        r'focused="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
+        r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*focused="true"',
+    ]:
+        for m in re.finditer(pattern, xml):
+            b = (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
+            if b not in bounds:
+                bounds.append(b)
+    return bounds
+
+
 def _find_focused_card(xml, rows):
-    """Find which card in the grid is currently focused. Returns (row, col)."""
+    """Find which card in the grid is currently focused using bounds overlap.
+
+    Returns (row, col) tuple. Uses the same overlap strategy as the ESPN launcher.
+    """
     if not xml or not rows:
         return 0, 0
 
-    focused_match = re.search(
-        r'focused="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml
-    )
-    if not focused_match:
-        focused_match = re.search(
-            r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*focused="true"', xml
-        )
-    if not focused_match:
+    focused_bounds_list = _get_focused_bounds(xml)
+    if not focused_bounds_list:
+        log("WARNING: No focused element found in UI dump")
         return 0, 0
 
-    fx, fy = int(focused_match.group(1)), int(focused_match.group(2))
+    # Find which card has the most overlap with any focused element
+    best_pos = (0, 0)
+    best_overlap = 0
 
-    # Find the team node closest to the focused element
-    team_nodes = []
-    for text, x1, y1, x2, y2 in re.findall(
-        r'text="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml
-    ):
-        if text.strip().lower() in MLB_TEAMS:
-            team_nodes.append((int(x1), int(y1), text.strip()))
-
-    if not team_nodes:
-        return 0, 0
-
-    # Find closest team node to focused position
-    best_name = None
-    min_dist = 99999
-    for tx, ty, tname in team_nodes:
-        dist = abs(tx - fx) + abs(ty - fy)
-        if dist < min_dist:
-            min_dist = dist
-            best_name = tname
-
-    # Map that team name to a row/col in the grid
-    if best_name:
+    for fx1, fy1, fx2, fy2 in focused_bounds_list:
         for ri, row in enumerate(rows):
             for ci, card in enumerate(row):
-                if best_name in card:
-                    return ri, ci
+                # Calculate overlap between focused bounds and card bounds
+                ox = max(0, min(fx2, card['x2']) - max(fx1, card['x1']))
+                oy = max(0, min(fy2, card['y2']) - max(fy1, card['y1']))
+                overlap = ox * oy
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_pos = (ri, ci)
 
-    return 0, 0
+    if best_overlap > 0:
+        log(f"Focused card determined by bounds overlap: [{best_pos[0]},{best_pos[1]}] (overlap={best_overlap}px²)")
+    else:
+        # Fallback: use center-distance of focused element to card centers
+        log("No bounds overlap — falling back to distance-based focus detection")
+        min_dist = 99999
+        for fx1, fy1, fx2, fy2 in focused_bounds_list:
+            fcx, fcy = (fx1 + fx2) // 2, (fy1 + fy2) // 2
+            for ri, row in enumerate(rows):
+                for ci, card in enumerate(row):
+                    dist = abs(fcx - card['center_x']) + abs(fcy - card['center_y'])
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_pos = (ri, ci)
+
+    return best_pos
 
 
 def _select_watch_live(ip, target_team):
-    """Find Watch Live button and select it. Returns result dict."""
-    btn_xml = _dump_ui(ip)
-    watch_live_downs = 0
-    if btn_xml:
-        btn_nodes = re.findall(
-            r'text="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-            btn_xml
-        )
+    """Find Watch Live button and select it with verification. Returns result dict."""
+    # Priority order — prefer Watch Live over Start From Beginning
+    WATCH_PRIORITY = ['watch live', 'go live', 'watch now', 'resume', 'watch', 'restart', 'start from beginning']
+
+    for attempt in range(3):
+        btn_xml = _dump_ui(ip)
+        if not btn_xml:
+            log(f"Watch button attempt {attempt + 1}: empty UI dump")
+            time.sleep(2)
+            continue
+
+        all_texts = _get_all_texts(btn_xml)
         button_texts = []
-        for text, x1, y1, x2, y2 in btn_nodes:
-            if text.strip().lower() in ('watch live', 'go live', 'resume', 'restart'):
-                button_texts.append((text.strip(), int(y1)))
-        button_texts.sort(key=lambda t: t[1])
-        log(f"Buttons found: {button_texts}")
+        for text, x1, y1, x2, y2 in all_texts:
+            clean = text.strip().lower()
+            for priority_idx, kw in enumerate(WATCH_PRIORITY):
+                if clean == kw or kw in clean:
+                    button_texts.append((text.strip(), y1, priority_idx))
+                    break
 
-        wl_pos = next((idx for idx, (t, _) in enumerate(button_texts)
-                       if t.lower() in ('watch live', 'go live')), -1)
-        if wl_pos > 0:
-            watch_live_downs = wl_pos
+        if not button_texts:
+            log(f"Watch button attempt {attempt + 1}: no watch buttons found")
+            # Maybe we need to scroll down
+            _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
+            time.sleep(1)
+            continue
 
-    for _ in range(watch_live_downs):
-        _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
-        time.sleep(0.5)
+        # Sort by priority (lower = better)
+        button_texts.sort(key=lambda t: t[2])
+        log(f"Watch buttons found: {[(t, p) for t, _, p in button_texts]}")
 
-    _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
-    log("Hit Watch Live")
-    return {'success': True, 'team': target_team}
+        best_button = button_texts[0][0]
+        log(f"Selecting: '{best_button}'")
+
+        # Navigate to it and press CENTER
+        _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
+        log(f"Pressed CENTER on '{best_button}'")
+        time.sleep(3)
+
+        # Verify: dump UI again — if watch buttons are GONE, stream started
+        verify_xml = _dump_ui(ip)
+        if verify_xml:
+            verify_texts = _get_all_texts(verify_xml)
+            still_showing = any(
+                any(kw in t.lower() for kw in WATCH_PRIORITY)
+                for t, _, _, _, _ in verify_texts
+            )
+            if still_showing:
+                log(f"Watch buttons still showing after tap — retrying (attempt {attempt + 1})")
+                time.sleep(2)
+                continue
+            else:
+                log("Watch buttons gone — stream started!")
+                return {'success': True, 'team': target_team}
+        else:
+            # Can't verify — assume success
+            log("Could not verify (empty dump) — assuming stream started")
+            return {'success': True, 'team': target_team}
+
+    log("Failed to tap Watch Live after 3 attempts")
+    return {'success': False, 'team': target_team, 'error': 'Watch button tap failed'}
 
 
 def _retry_games_tab(ip):
@@ -320,7 +503,8 @@ def _attempt_launch(ip, target_team):
 
     log(f"Starting MLB app on {ip}")
     _adb(ip, f'am start -n {MLB_ACTIVITY}')
-    time.sleep(8)
+    log("Waiting 15s for MLB app to fully load...")
+    time.sleep(15)
 
     # Try to get to Games tab, retry up to 3 times
     got_games = _navigate_to_games_tab(ip)
@@ -341,21 +525,30 @@ def _attempt_launch(ip, target_team):
     log("DOWN to enter grid")
     time.sleep(1)
 
+    # Initial grid scan — examine ALL visible tiles
+    xml = _dump_ui(ip)
+    rows = _parse_game_grid(xml) if xml else []
+
+    if rows:
+        focused_row, focused_col = _find_focused_card(xml, rows)
+        _log_grid(rows, focused_pos=(focused_row, focused_col))
+    else:
+        focused_row, focused_col = 0, 0
+        log("WARNING: No game cards found in initial scan")
+
     last_cards_str = None
     stuck_count = 0
 
     for direction_label, key_dir in [('DOWN', 'KEYCODE_DPAD_DOWN'), ('UP', 'KEYCODE_DPAD_UP')]:
         for scroll in range(10):
             # ── Fresh dump to see current grid state ──
-            xml = _dump_ui(ip)
-            if not xml or 'text=' not in xml:
-                log(f"{direction_label} scroll {scroll}: empty UI dump")
-                time.sleep(2)
-                continue
-
-            rows = _parse_game_grid(xml)
-            all_cards = [card for row in rows for card in row]
-            log(f"{direction_label} scroll {scroll}: {all_cards}")
+            if scroll > 0 or not rows:  # Skip first dump if we already have it
+                xml = _dump_ui(ip)
+                if not xml:
+                    log(f"{direction_label} scroll {scroll}: empty UI dump")
+                    time.sleep(2)
+                    continue
+                rows = _parse_game_grid(xml)
 
             # If we lost the games grid entirely, recover
             if not rows:
@@ -368,22 +561,26 @@ def _attempt_launch(ip, target_team):
                     time.sleep(1)
                 continue
 
+            # Get focused position and log full grid
+            focused_row, focused_col = _find_focused_card(xml, rows)
+            _log_grid(rows, focused_pos=(focused_row, focused_col))
+
             # Stuck detection — same cards 3 times means we've hit the edge
-            cards_key = str(all_cards)
-            if cards_key == last_cards_str:
+            all_teams = str([card['teams'] for row in rows for card in row])
+            if all_teams == last_cards_str:
                 stuck_count += 1
                 if stuck_count >= 3:
                     log(f"Stuck for {stuck_count} scrolls, switching direction")
                     break
             else:
                 stuck_count = 0
-                last_cards_str = cards_key
+                last_cards_str = all_teams
 
             # ── Find target team in visible cards ──
             target_row, target_col = None, None
             for row_idx, row in enumerate(rows):
                 for col_idx, card in enumerate(row):
-                    for team_text in card:
+                    for team_text in card['teams']:
                         if target_team.lower() in team_text.lower():
                             target_row, target_col = row_idx, col_idx
                             break
@@ -394,56 +591,114 @@ def _attempt_launch(ip, target_team):
 
             if target_row is None:
                 # Target not visible — scroll and try again
+                log(f"{target_team} NOT found in visible tiles. Scrolling {direction_label}...")
                 _adb(ip, f'input keyevent {key_dir}')
                 time.sleep(0.5)
                 continue
 
-            log(f"Found {target_team} at row {target_row}, col {target_col}")
+            log(f">>> FOUND {target_team} at [{target_row},{target_col}], "
+                f"focus is at [{focused_row},{focused_col}]")
 
-            # ── Find which card is currently focused ──
-            focused_row, focused_col = _find_focused_card(xml, rows)
-            log(f"Focused card at row {focused_row}, col {focused_col}")
-
-            # ── Navigate from focused card to target card ──
-            row_diff = target_row - focused_row
-            col_diff = target_col - focused_col
-            log(f"Navigating: row_diff={row_diff}, col_diff={col_diff}")
-
-            for _ in range(abs(row_diff)):
-                key = 'KEYCODE_DPAD_DOWN' if row_diff > 0 else 'KEYCODE_DPAD_UP'
-                _adb(ip, f'input keyevent {key}')
-                time.sleep(0.5)
-
-            for _ in range(abs(col_diff)):
-                key = 'KEYCODE_DPAD_RIGHT' if col_diff > 0 else 'KEYCODE_DPAD_LEFT'
-                _adb(ip, f'input keyevent {key}')
-                time.sleep(0.5)
-
-            # ── VERIFY: fresh dump to confirm we're on the right card ──
-            time.sleep(0.5)
-            verify_xml = _dump_ui(ip)
-            if verify_xml:
-                verify_rows = _parse_game_grid(verify_xml)
-                vf_row, vf_col = _find_focused_card(verify_xml, verify_rows)
-                # Check that the focused card contains target team
-                if verify_rows and 0 <= vf_row < len(verify_rows) and 0 <= vf_col < len(verify_rows[vf_row]):
-                    focused_card_teams = verify_rows[vf_row][vf_col]
-                    log(f"Verification: focused card teams = {focused_card_teams}")
-                    card_has_target = any(
-                        target_team.lower() in t.lower() for t in focused_card_teams
-                    )
-                    if not card_has_target:
-                        log(f"WARNING: focused card {focused_card_teams} does NOT contain {target_team}!")
-                        log("Aborting selection — will retry from Games tab")
-                        _adb(ip, 'input keyevent KEYCODE_BACK')
-                        time.sleep(2)
-                        got_games = _retry_games_tab(ip)
-                        if got_games:
-                            _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
-                            time.sleep(1)
+            # ── Navigate to target card with retry ──
+            # ADB keypresses can fail silently, so verify and retry up to 3 times
+            nav_success = False
+            for nav_attempt in range(3):
+                if nav_attempt > 0:
+                    log(f"--- Navigation retry {nav_attempt} ---")
+                    # Re-scan to find current focus position
+                    time.sleep(1)
+                    retry_xml = _dump_ui(ip)
+                    if not retry_xml:
                         continue
+                    retry_rows = _parse_game_grid(retry_xml)
+                    if not retry_rows:
+                        continue
+                    focused_row, focused_col = _find_focused_card(retry_xml, retry_rows)
+                    _log_grid(retry_rows, focused_pos=(focused_row, focused_col))
+
+                    # Re-find target in the (possibly shifted) grid
+                    target_row, target_col = None, None
+                    for ri, row in enumerate(retry_rows):
+                        for ci, card in enumerate(row):
+                            for tt in card['teams']:
+                                if target_team.lower() in tt.lower():
+                                    target_row, target_col = ri, ci
+                                    break
+                            if target_row is not None:
+                                break
+                        if target_row is not None:
+                            break
+                    if target_row is None:
+                        log("Target lost from grid during retry!")
+                        break
+
+                row_diff = target_row - focused_row
+                col_diff = target_col - focused_col
+
+                if row_diff == 0 and col_diff == 0:
+                    log("Already on target card!")
                 else:
-                    log(f"Verification: could not determine focused card (vf_row={vf_row}, vf_col={vf_col})")
+                    log(f"Navigation plan: {abs(row_diff)} {'DOWN' if row_diff > 0 else 'UP'}, "
+                        f"{abs(col_diff)} {'RIGHT' if col_diff > 0 else 'LEFT'}")
+
+                    for i in range(abs(row_diff)):
+                        key = 'KEYCODE_DPAD_DOWN' if row_diff > 0 else 'KEYCODE_DPAD_UP'
+                        _adb(ip, f'input keyevent {key}')
+                        log(f"  Move {'DOWN' if row_diff > 0 else 'UP'} ({i+1}/{abs(row_diff)})")
+                        time.sleep(0.8)  # Slightly longer delay for flaky ADB
+
+                    for i in range(abs(col_diff)):
+                        key = 'KEYCODE_DPAD_RIGHT' if col_diff > 0 else 'KEYCODE_DPAD_LEFT'
+                        _adb(ip, f'input keyevent {key}')
+                        log(f"  Move {'RIGHT' if col_diff > 0 else 'LEFT'} ({i+1}/{abs(col_diff)})")
+                        time.sleep(0.8)
+
+                # ── VERIFY: fresh dump to confirm we're on the right card ──
+                time.sleep(1)
+                verify_xml = _dump_ui(ip)
+                if not verify_xml:
+                    log("VERIFY: empty UI dump — assuming success")
+                    nav_success = True
+                    break
+
+                verify_rows = _parse_game_grid(verify_xml)
+                if not verify_rows:
+                    log("VERIFY: no game grid — assuming success")
+                    nav_success = True
+                    break
+
+                vf_row, vf_col = _find_focused_card(verify_xml, verify_rows)
+                _log_grid(verify_rows, focused_pos=(vf_row, vf_col))
+
+                if 0 <= vf_row < len(verify_rows) and 0 <= vf_col < len(verify_rows[vf_row]):
+                    focused_card = verify_rows[vf_row][vf_col]
+                    log(f"VERIFY: focused card = {focused_card['teams']}")
+                    card_has_target = any(
+                        target_team.lower() in t.lower() for t in focused_card['teams']
+                    )
+                    if card_has_target:
+                        log(f"VERIFY OK: {target_team} confirmed on focused card!")
+                        nav_success = True
+                        break
+                    else:
+                        log(f"VERIFY FAILED: {focused_card['teams']} does NOT contain {target_team}")
+                        log("Keypresses may not have registered — will recalculate and retry")
+                        # Update focus position for next retry iteration
+                        focused_row, focused_col = vf_row, vf_col
+                else:
+                    log(f"VERIFY: could not determine focused card — assuming success")
+                    nav_success = True
+                    break
+
+            if not nav_success:
+                log("Navigation failed after 3 attempts — restarting from Games tab")
+                _adb(ip, 'input keyevent KEYCODE_BACK')
+                time.sleep(2)
+                got_games = _retry_games_tab(ip)
+                if got_games:
+                    _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
+                    time.sleep(1)
+                continue
 
             # ── SELECT game card ──
             _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
@@ -466,7 +721,9 @@ def _attempt_launch(ip, target_team):
 
 
 def launch_game(ip, away_team, home_team):
-    target_team = away_team or home_team
+    raw_target = away_team or home_team
+    target_team = _normalize_team(raw_target)
+    log(f"Target team: '{raw_target}' -> normalized: '{target_team}'")
 
     for attempt in range(3):
         if attempt > 0:
