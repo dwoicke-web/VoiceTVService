@@ -73,6 +73,15 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs, onGameLaunched }) => {
           espn_id: game.espn_id || null,
           title: `${game.away_team.name} vs ${game.home_team.name}`
         });
+      // Peacock / Amazon Prime: just launch the app on Roku (no game navigation)
+      } else if (app.app_name === 'Peacock' || app.app_name === 'Prime Video' || app.app_name === 'Amazon Prime') {
+        const serviceName = app.app_name === 'Amazon Prime' ? 'Prime Video' : app.app_name;
+        await axios.post('/api/tv/launch', {
+          tv_id: tvId,
+          content_id: 'home',
+          title: `${game.away_team.name} vs ${game.home_team.name}`,
+          service: serviceName
+        });
       // YouTube TV broadcasts: tune to the channel via Roku
       } else if (app.app_name === 'YouTubeTV' && app.broadcast_name) {
         await axios.post('/api/tv/tune', {

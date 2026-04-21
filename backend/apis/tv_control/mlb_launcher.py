@@ -23,6 +23,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from apis.tv_control.fire_tv import _run_adb_command, _send_wol, FIRE_TV_MAC_ADDRESSES
+from debug_logging.step_logger import start_run, log_step, get_current_run_id
+from debug_logging import run_storage
 
 MLB_PKG = 'com.bamnetworks.mobile.android.gameday.atbat'
 MLB_ACTIVITY = f'{MLB_PKG}/mlb.atbat.activity.MainActivity'
@@ -390,9 +392,7 @@ def _find_focused_card(xml, rows):
 
 
 def _select_watch_live(ip, target_team):
-    """Find Watch Live button and select it with verification. Returns result dict."""
-    # Priority order — prefer Watch Live over Start From Beginning
-    WATCH_PRIORITY = ['watch live', 'go live', 'watch now', 'resume', 'watch', 'restart', 'start from beginning']
+    """Find and select WATCH LIVE button specifically. Never select Resume."""
 
     for attempt in range(3):
         btn_xml = _dump_ui(ip)
@@ -402,42 +402,60 @@ def _select_watch_live(ip, target_team):
             continue
 
         all_texts = _get_all_texts(btn_xml)
-        button_texts = []
+
+        # STRICT: Only accept "WATCH LIVE" exactly
+        watch_live_button = None
         for text, x1, y1, x2, y2 in all_texts:
             clean = text.strip().lower()
-            for priority_idx, kw in enumerate(WATCH_PRIORITY):
-                if clean == kw or kw in clean:
-                    button_texts.append((text.strip(), y1, priority_idx))
-                    break
+            # ONLY match exact "watch live" — nothing else
+            if clean == 'watch live':
+                watch_live_button = (text.strip(), y1, (x1+x2)//2)  # (text, y_pos, x_center)
+                log(f"✓ FOUND 'WATCH LIVE' at y={y1}")
+                break
 
-        if not button_texts:
-            log(f"Watch button attempt {attempt + 1}: no watch buttons found")
-            # Maybe we need to scroll down
+        if not watch_live_button:
+            log(f"Watch button attempt {attempt + 1}: 'WATCH LIVE' not found, trying DOWN")
             _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
             time.sleep(1)
             continue
 
-        # Sort by priority (lower = better)
-        button_texts.sort(key=lambda t: t[2])
-        log(f"Watch buttons found: {[(t, p) for t, _, p in button_texts]}")
+        # Now find the currently focused button to navigate to WATCH LIVE
+        focused_texts = [t for t in all_texts if 'focused' in str(t).lower()]
 
-        best_button = button_texts[0][0]
-        log(f"Selecting: '{best_button}'")
+        # Get focused button Y position
+        focused_y = None
+        for text, x1, y1, x2, y2 in all_texts:
+            clean = text.strip().lower()
+            # Check if this text is in a focused region
+            if clean in ['resume', 'resume from beginning', 'watch from the beginning', 'watch now']:
+                focused_y = y1
+                log(f"Currently focused: '{text}' at y={y1}")
+                break
 
-        # Navigate to it and press CENTER
+        watch_live_y = watch_live_button[1]
+
+        # Navigate DOWN to WATCH LIVE if it's below focused button
+        if focused_y is not None and watch_live_y > focused_y:
+            nav_count = (watch_live_y - focused_y) // 100  # Approximate navigation
+            log(f"Navigating DOWN {nav_count} times to reach WATCH LIVE")
+            for _ in range(max(1, nav_count)):
+                _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
+                time.sleep(0.5)
+
+        # Press CENTER to select WATCH LIVE
+        log(f"Pressing CENTER on 'WATCH LIVE'")
         _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
-        log(f"Pressed CENTER on '{best_button}'")
         time.sleep(3)
 
         # Verify: dump UI again — if watch buttons are GONE, stream started
         verify_xml = _dump_ui(ip)
         if verify_xml:
             verify_texts = _get_all_texts(verify_xml)
-            still_showing = any(
-                any(kw in t.lower() for kw in WATCH_PRIORITY)
+            watch_still_visible = any(
+                'watch live' in t.lower() or 'resume' in t.lower()
                 for t, _, _, _, _ in verify_texts
             )
-            if still_showing:
+            if watch_still_visible:
                 log(f"Watch buttons still showing after tap — retrying (attempt {attempt + 1})")
                 time.sleep(2)
                 continue
@@ -449,8 +467,8 @@ def _select_watch_live(ip, target_team):
             log("Could not verify (empty dump) — assuming stream started")
             return {'success': True, 'team': target_team}
 
-    log("Failed to tap Watch Live after 3 attempts")
-    return {'success': False, 'team': target_team, 'error': 'Watch button tap failed'}
+    log("Failed to select WATCH LIVE after 3 attempts")
+    return {'success': False, 'team': target_team, 'error': 'Watch Live selection failed'}
 
 
 def _retry_games_tab(ip):
@@ -720,31 +738,71 @@ def _attempt_launch(ip, target_team):
     return None  # Signal outer loop to do full restart
 
 
-def launch_game(ip, away_team, home_team):
+def launch_game(ip, away_team, home_team, _run_id=None):
+    """Launch a game on MLB Fire TV."""
+    # Initialize logging run if not already started
+    if _run_id is None:
+        _run_id = start_run({
+            'type': 'mlb_launcher',
+            'ip': ip,
+            'away_team': away_team,
+            'home_team': home_team,
+            'status': 'in_progress',
+        })
+
     raw_target = away_team or home_team
     target_team = _normalize_team(raw_target)
     log(f"Target team: '{raw_target}' -> normalized: '{target_team}'")
 
-    for attempt in range(3):
-        if attempt > 0:
-            log(f"=== RETRY {attempt} — resetting to MLB home ===")
-            _reset_to_mlb_home(ip)
-        else:
-            # Phase 0: Wake the Fire TV
-            _wake_tv(ip)
+    result = None
+    try:
+        for attempt in range(3):
+            if attempt > 0:
+                log(f"=== RETRY {attempt} — resetting to MLB home ===")
+                _reset_to_mlb_home(ip)
+            else:
+                # Phase 0: Wake the Fire TV
+                _wake_tv(ip)
 
-        try:
-            result = _attempt_launch(ip, target_team)
-        except Exception as e:
-            log(f"Attempt {attempt + 1} failed with exception: {e}")
-            result = None
+            try:
+                result = _attempt_launch(ip, target_team)
+            except Exception as e:
+                log(f"Attempt {attempt + 1} failed with exception: {e}")
+                result = None
 
-        if result and 'success' in result:
-            return result
+            if result and 'success' in result:
+                return result
 
-        log(f"Attempt {attempt + 1} did not succeed, will retry")
+            log(f"Attempt {attempt + 1} did not succeed, will retry")
 
-    return {'error': f'Could not find or launch {target_team} after 3 attempts'}
+        result = {'error': f'Could not find or launch {target_team} after 3 attempts'}
+        return result
+    finally:
+        # Save run metadata with result
+        if _run_id:
+            # Log the overall execution as a step
+            from debug_logging.step_logger import log_step, get_run
+            log_step(
+                'launch_game',
+                {'ip': ip, 'away_team': away_team, 'home_team': home_team},
+                result,
+                status='success' if (result and 'success' in result) else 'failure',
+                duration=0
+            )
+
+            # Get the steps from the in-memory run
+            run_data = get_run(_run_id)
+            steps = run_data.get('steps', []) if run_data else []
+
+            run_metadata = {
+                'type': 'mlb_launcher',
+                'ip': ip,
+                'away_team': away_team,
+                'home_team': home_team,
+                'status': 'success' if (result and 'success' in result) else 'failure',
+                'result': result,
+            }
+            run_storage.save_run(_run_id, steps, metadata=run_metadata)
 
 
 if __name__ == '__main__':

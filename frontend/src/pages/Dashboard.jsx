@@ -7,6 +7,7 @@ import VoiceControl from '../components/VoiceControl';
 import SportsScoreboard from '../components/SportsScoreboard';
 import ChannelPicker from '../components/ChannelPicker';
 import YTVChannelManager from '../components/YTVChannelManager';
+import DebugDashboard from '../components/DebugDashboard';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -17,7 +18,8 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastSearchQuery, setLastSearchQuery] = useState('');
-  const [playingContent, setPlayingContent] = useState({}); // Track what's playing on each TV
+  const [playingContent, setPlayingContent] = useState({});
+  const [showDebugDashboard, setShowDebugDashboard] = useState(false); // Track what's playing on each TV
 
   // Fetch available TVs and now-playing state on component mount
   useEffect(() => {
@@ -255,11 +257,34 @@ const Dashboard = () => {
     }
   };
 
+  // If debug dashboard is active, show it instead
+  if (showDebugDashboard) {
+    return (
+      <div>
+        <button
+          className="debug-toggle-btn"
+          onClick={() => setShowDebugDashboard(false)}
+          title="Back to main dashboard"
+        >
+          ← Back to Main Dashboard
+        </button>
+        <DebugDashboard />
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-container">
       <header className="dashboard-header">
         <h1>🎬 Dan's Basement TV Control Service</h1>
         <p className="subtitle">Control your entertainment system with style</p>
+        <button
+          className="debug-toggle-btn"
+          onClick={() => setShowDebugDashboard(true)}
+          title="Open debug dashboard for launcher logs"
+        >
+          🔍 Debug Dashboard
+        </button>
       </header>
 
       {error && <div className="error-message">{error}</div>}

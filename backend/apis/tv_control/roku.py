@@ -94,15 +94,16 @@ class RokuClient:
 
         Args:
             app_id: The Roku app ID to launch
-            params: Optional dictionary of parameters to pass (e.g., {'profile': 'Dan'} for YouTube TV)
+            params: Optional dictionary of parameters to pass (e.g., {'contentId': 'xyz'} for YouTube TV)
         """
         try:
             await self.ensure_session()
 
             url = f"{self.base_url}/launch/{app_id}"
-            # Add query parameters if provided
+            # Add query parameters if provided - must be URL-encoded
             if params:
-                query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+                from urllib.parse import urlencode
+                query_string = urlencode(params)
                 url = f"{url}?{query_string}"
 
             async with self.session.post(url, timeout=aiohttp.ClientTimeout(total=self.timeout)) as resp:
@@ -244,13 +245,13 @@ class RokuDevice(TVDevice):
         # IDs verified against actual Roku device /query/apps endpoint (3/15/2026)
         self.app_ids = {
             'YouTubeTV': '195316',  # YouTube TV (verified - ALL 4 devices have it)
-            'Peacock': '113072',    # Peacock app ID (not found on devices, fallback to navigation)
+            'Peacock': '593099',    # Peacock TV (verified - actual app ID on all devices)
             'ESPN+': '34376',       # ESPN app (verified - all devices have it)
             'ESPN': '34376',        # ESPN alias (verified)
             'Prime Video': '13',    # Amazon Prime Video (verified - all devices)
             'HBO Max': '61322',     # HBO Max (verified - Upper Right & Lower Left have it)
             'YouTube': '837',       # YouTube (not found on devices, fallback to navigation)
-            'Fandango': '142844',   # Fandango (not found on devices, fallback to navigation)
+            'Fandango': '13842',    # Fandango at Home (verified)
             'Vudu': '2285',         # Vudu (not found on devices, fallback to navigation)
             'Netflix': '12',        # Netflix (verified - all devices)
             'Hulu': '2285',         # Hulu (verified - Upper Left & Lower Right have it)
@@ -514,6 +515,15 @@ class RokuDevice(TVDevice):
         Args:
             channel_name: Name of the channel (e.g., 'ESPN', 'CBS', 'Fox News')
         """
+        # Map national networks to Kansas City affiliate names
+        kc_affiliate_map = {
+            'ABC': 'KMBC',
+            'NBC': 'KSHB',
+            'CBS': 'KCTV 5',
+            'FOX': 'FOX 4',
+        }
+        channel_name = kc_affiliate_map.get(channel_name.upper(), channel_name)
+
         if not self.device_ip:
             return {
                 'status': 'success',
