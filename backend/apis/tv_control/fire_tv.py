@@ -133,7 +133,7 @@ class FireTVDevice(TVDevice):
 
         # App package name mappings for Fire TV
         self.app_packages = {
-            'YouTubeTV': 'com.google.android.tvlauncher.firetv',
+            'YouTubeTV': 'com.amazon.firetv.youtube.tv',
             'Peacock': 'com.peacocktv.peacockandroid',
             'ESPN+': 'com.espn.gtv',
             'Prime Video': 'com.amazon.amazonvideo.livingroom',
@@ -213,6 +213,88 @@ class FireTVDevice(TVDevice):
             logger.error(f"Failed to launch URL on {self.device_name}: {e}")
             return {'status': 'error', 'message': f'Failed to launch URL',
                     'device_id': self.device_id, 'error': str(e)}
+
+    async def tune_channel(self, channel_name: str) -> Dict[str, Any]:
+        """Tune to a YouTube TV channel on Fire TV via Cobalt deep link.
+
+        Sequence (per feedback memory — fresh launch is required):
+          1. Map national network names to KC affiliates
+          2. Look up videoId from ytv_channel_mappings.json
+          3. `am force-stop com.amazon.firetv.youtube.tv`
+          4. `am start -a VIEW -d https://tv.youtube.com/watch/<videoId> -n <pkg>/dev.cobalt.app.MainActivity`
+
+        No keypress fallback — if the videoId is missing or the intent fails,
+        we return an error so the caller can surface it.
+        """
+        kc_affiliate_map = {
+            'ABC': 'KMBC',
+            'NBC': 'KSHB',
+            'CBS': 'KCTV 5',
+            'FOX': 'FOX 4',
+        }
+        channel_name = kc_affiliate_map.get(channel_name.upper(), channel_name)
+
+        if not self.device_ip:
+            return {
+                'status': 'success',
+                'message': f'Mock: Tuning to {channel_name} on {self.device_name}',
+                'device_id': self.device_id,
+                'channel': channel_name,
+            }
+
+        from apis.tv_control.ytv_channels import get_mapper
+        mapper = get_mapper()
+        video_id = mapper.get_video_id(channel_name)
+        if not video_id:
+            return {
+                'status': 'error',
+                'message': f'No YouTube TV videoId mapped for channel "{channel_name}"',
+                'device_id': self.device_id,
+                'channel': channel_name,
+            }
+
+        package = self.app_packages['YouTubeTV']
+        activity = f'{package}/dev.cobalt.app.MainActivity'
+        url = f'https://tv.youtube.com/watch/{video_id}'
+
+        try:
+            await self._run_cmd(f'am force-stop {package}')
+            await asyncio.sleep(1.0)
+            start_cmd = f"am start -a android.intent.action.VIEW -d '{url}' -n {activity}"
+            output = await self._run_cmd(start_cmd)
+
+            if 'Error' in output or 'Exception' in output:
+                logger.error(f"YT TV deep link failed on {self.device_name}: {output}")
+                return {
+                    'status': 'error',
+                    'message': f'Failed to tune to {channel_name}',
+                    'device_id': self.device_id,
+                    'channel': channel_name,
+                    'error': output,
+                }
+
+            logger.info(f"Tuned to {channel_name} (videoId={video_id}) on {self.device_name}")
+            return {
+                'status': 'success',
+                'message': f'Tuning to {channel_name} on {self.device_name}',
+                'device_id': self.device_id,
+                'device_name': self.device_name,
+                'device_type': self.device_type,
+                'channel': channel_name,
+                'app': 'YouTubeTV',
+                'method': 'firetv_deep_link',
+                'video_id': video_id,
+                'is_connected': True,
+            }
+        except Exception as e:
+            logger.error(f"tune_channel error on {self.device_name}: {e}")
+            return {
+                'status': 'error',
+                'message': f'Failed to tune to {channel_name}',
+                'device_id': self.device_id,
+                'channel': channel_name,
+                'error': str(e),
+            }
 
     async def power_on(self) -> Dict[str, Any]:
         """Power on the Fire TV device (wake from sleep)

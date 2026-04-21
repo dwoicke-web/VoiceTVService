@@ -178,15 +178,13 @@ def _exec_tune(command, loop):
     if not channel:
         return {'status': 'error', 'voice_response': 'Which channel should I tune to?'}
 
-    roku = _get_roku(tv_id)
-    if roku:
+    fire_tv = _get_fire_tv(tv_id)
+    if fire_tv:
         tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
-        # Run tune_channel in background thread so Alexa gets an immediate response
-        # (tune_channel takes 15+ seconds with all the sleeps for navigation)
         def _bg_tune():
             bg_loop = asyncio.new_event_loop()
             try:
-                bg_loop.run_until_complete(roku.tune_channel(channel))
+                bg_loop.run_until_complete(fire_tv.tune_channel(channel))
             except Exception as e:
                 logger.error(f"Background tune_channel error: {e}")
             finally:
@@ -195,7 +193,7 @@ def _exec_tune(command, loop):
         threading.Thread(target=_bg_tune, daemon=True).start()
         return {'status': 'success', 'voice_response': f"Tuning to {channel} on {tv_name}"}
     else:
-        return {'status': 'error', 'voice_response': f"No Roku configured for {tv_id.replace('_', ' ')}"}
+        return {'status': 'error', 'voice_response': f"No Fire TV configured for {tv_id.replace('_', ' ')}"}
 
 
 def _exec_launch(command, loop):

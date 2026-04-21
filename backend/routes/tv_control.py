@@ -383,16 +383,19 @@ def power_all():
 @tv_control_bp.route('/tune', methods=['POST'])
 def tune_channel():
     """
-    Tune to a YouTube TV channel on a specific TV
+    Tune to a YouTube TV channel on a specific Fire TV.
+
     Request body:
         - tv_id: TV identifier (upper_left, upper_right, lower_left, lower_right)
         - channel: Channel name (e.g., 'ESPN', 'Fox News', 'CNN')
 
-    Uses the YouTube TV internal search approach:
-      1. Launch YouTube TV
-      2. Navigate to Search tab (Right×3 → Select)
-      3. Type channel name via Lit_ keypresses
-      4. Select first result
+    Launches YouTube TV (Cobalt) on the Fire TV via ADB deep link:
+      1. `am force-stop com.amazon.firetv.youtube.tv`
+      2. `am start -a VIEW -d https://tv.youtube.com/watch/<videoId> -n <pkg>/dev.cobalt.app.MainActivity`
+
+    The previous Roku-ECP path (POST /launch/195316?contentId=...) was abandoned
+    after the 2026-04-14 YouTube TV Roku app update made deep linking a no-op.
+    Roku tune_channel still exists in roku.py for the Big Screen / future revert.
     """
     data = request.get_json()
 
@@ -405,22 +408,20 @@ def tune_channel():
     try:
         manager = _initialize_tv_devices()
 
-        # Get the corresponding Roku device
-        roku_id = f'{tv_id}_roku'
-        roku_device = manager.get_device(roku_id)
-        if not roku_device:
+        # Get the Fire TV device for this position
+        fire_tv = manager.get_device(tv_id)
+        if not fire_tv:
             return jsonify({
-                'error': f'Roku device {roku_id} not found',
+                'error': f'Fire TV device {tv_id} not found',
                 'available_devices': list(manager.devices.keys())
             }), 404
 
         # Run tune_channel in background thread so API responds immediately
-        # (tune_channel takes 15+ seconds with YouTube TV launch + search navigation)
         import threading
         def _bg_tune():
             try:
                 bg_loop = asyncio.new_event_loop()
-                bg_loop.run_until_complete(roku_device.tune_channel(channel))
+                bg_loop.run_until_complete(fire_tv.tune_channel(channel))
                 bg_loop.close()
             except Exception as e:
                 logger.error(f"Background tune_channel error: {e}")
@@ -433,7 +434,7 @@ def tune_channel():
 
         return jsonify({
             'status': 'success',
-            'message': f'Tuning to {channel} on {roku_device.device_name}',
+            'message': f'Tuning to {channel} on {fire_tv.device_name}',
             'tv_id': tv_id,
             'channel': channel,
             'note': 'Channel tuning started in background'

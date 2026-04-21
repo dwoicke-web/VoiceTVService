@@ -202,7 +202,7 @@ def _execute_reset_antenna(command: dict, loop) -> dict:
 
 
 def _execute_tune_channel(command: dict, loop) -> dict:
-    """Tune to a channel on YouTube TV via Roku"""
+    """Tune to a channel on YouTube TV via Fire TV (Cobalt deep link)"""
     channel = command.get('channel')
     tv_id = command.get('tv_id')
 
@@ -213,15 +213,13 @@ def _execute_tune_channel(command: dict, loop) -> dict:
     if not tv_id:
         tv_id = 'upper_left'
 
-    roku = _get_roku(tv_id)
-    if roku:
+    fire_tv = _get_fire_tv(tv_id)
+    if fire_tv:
         tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
-        # Run tune_channel in background thread so the API responds immediately
-        # (tune_channel takes 15+ seconds with YouTube TV launch + search navigation)
         def _bg_tune():
             bg_loop = asyncio.new_event_loop()
             try:
-                bg_loop.run_until_complete(roku.tune_channel(channel))
+                bg_loop.run_until_complete(fire_tv.tune_channel(channel))
             except Exception as e:
                 logger.error(f"Background tune_channel error: {e}")
             finally:
@@ -236,8 +234,8 @@ def _execute_tune_channel(command: dict, loop) -> dict:
     else:
         return {
             'status': 'error',
-            'message': f'No Roku configured for {tv_id}',
-            'voice_response': f"Cannot find Roku for {tv_id.replace('_', ' ')}"
+            'message': f'No Fire TV configured for {tv_id}',
+            'voice_response': f"Cannot find Fire TV for {tv_id.replace('_', ' ')}"
         }
 
 

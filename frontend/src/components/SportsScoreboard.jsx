@@ -82,7 +82,7 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs, onGameLaunched }) => {
           title: `${game.away_team.name} vs ${game.home_team.name}`,
           service: serviceName
         });
-      // YouTube TV broadcasts: tune to the channel via Roku
+      // YouTube TV broadcasts: tune to the channel via Fire TV (Cobalt deep link)
       } else if (app.app_name === 'YouTubeTV' && app.broadcast_name) {
         await axios.post('/api/tv/tune', {
           tv_id: tvId,

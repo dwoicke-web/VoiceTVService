@@ -10,7 +10,7 @@ const CHANNELS = [
   { name: 'CBS Sports Network', icon: '⚽' },
   { name: 'Fox News', icon: '📰' },
   { name: 'CNN', icon: '📰' },
-  { name: 'MSNBC', icon: '📰' },
+  { name: 'MS NOW', icon: '📰' },
   { name: 'Newsmax', icon: '📰' },
   { name: 'CBS', icon: '📺' },
   { name: 'NBC', icon: '📺' },
@@ -64,6 +64,8 @@ const ChannelPicker = ({ selectedTV, tvs, onChannelTuned }) => {
       if (onChannelTuned) {
         onChannelTuned(tvId, channelName);
       }
+      const tvName = tvs?.find(t => t.id === tvId)?.name || tvId;
+      alert(`Tuning to ${channelName} on ${tvName}!`);
     } catch (err) {
       console.error('Error tuning channel:', err);
       alert(`Failed to tune to ${channelName}`);
