@@ -144,11 +144,11 @@ class FireTVDevice(TVDevice):
             'JustWatch': 'com.justwatch.justwatch'
         }
 
-    async def _run_cmd(self, cmd: str) -> str:
+    async def _run_cmd(self, cmd: str, timeout: float = 10.0) -> str:
         """Run a single ADB command (async wrapper around synchronous ADB)"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None, _run_adb_command, self.device_ip, cmd, self.adb_port, 10.0
+            None, _run_adb_command, self.device_ip, cmd, self.adb_port, timeout
         )
 
     async def _run_cmds(self, commands: list) -> list:
@@ -182,6 +182,9 @@ class FireTVDevice(TVDevice):
             return {'status': 'error', 'message': f'No IP configured for {self.device_name}',
                     'device_id': self.device_id}
         try:
+            # Wake device first so ADB can connect (TVs sleep after idle)
+            await self._wake_before_command()
+
             package = self.app_packages.get(app_name)
             if not package:
                 return {'status': 'error', 'message': f'App {app_name} not supported'}
@@ -258,34 +261,47 @@ class FireTVDevice(TVDevice):
         url = f'https://tv.youtube.com/watch/{video_id}'
 
         try:
-            await self._run_cmd(f'am force-stop {package}')
-            await asyncio.sleep(1.0)
-            start_cmd = f"am start -a android.intent.action.VIEW -d '{url}' -n {activity}"
-            output = await self._run_cmd(start_cmd)
+            # Wake device first so ADB can connect (TVs sleep after idle or just turned on)
+            await self._wake_before_command()
 
-            if 'Error' in output or 'Exception' in output:
-                logger.error(f"YT TV deep link failed on {self.device_name}: {output}")
-                return {
-                    'status': 'error',
-                    'message': f'Failed to tune to {channel_name}',
-                    'device_id': self.device_id,
-                    'channel': channel_name,
-                    'error': output,
-                }
+            # Force-stop any existing instance
+            stop_output = await self._run_cmd(f'am force-stop {package}', timeout=12.0)
+            logger.debug(f"force-stop output on {self.device_name}: {stop_output}")
+            await asyncio.sleep(2.5)
 
-            logger.info(f"Tuned to {channel_name} (videoId={video_id}) on {self.device_name}")
-            return {
-                'status': 'success',
-                'message': f'Tuning to {channel_name} on {self.device_name}',
-                'device_id': self.device_id,
-                'device_name': self.device_name,
-                'device_type': self.device_type,
-                'channel': channel_name,
-                'app': 'YouTubeTV',
-                'method': 'firetv_deep_link',
-                'video_id': video_id,
-                'is_connected': True,
-            }
+            # Retry logic: YouTube TV deep link start can be flaky when device is waking
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    start_cmd = f"am start -a android.intent.action.VIEW -d '{url}' -n {activity}"
+                    output = await self._run_cmd(start_cmd, timeout=12.0)
+
+                    if 'Error' in output or 'Exception' in output:
+                        logger.warning(f"YT TV start attempt {attempt} failed on {self.device_name}: {output}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1.5)
+                            continue
+                        raise Exception(f"Start failed: {output}")
+
+                    logger.info(f"Tuned to {channel_name} (videoId={video_id}) on {self.device_name} (attempt {attempt})")
+                    return {
+                        'status': 'success',
+                        'message': f'Tuning to {channel_name} on {self.device_name}',
+                        'device_id': self.device_id,
+                        'device_name': self.device_name,
+                        'device_type': self.device_type,
+                        'channel': channel_name,
+                        'app': 'YouTubeTV',
+                        'method': 'firetv_deep_link',
+                        'video_id': video_id,
+                        'is_connected': True,
+                    }
+                except Exception as retry_e:
+                    if attempt == max_retries:
+                        raise retry_e
+                    logger.debug(f"Retry {attempt}/{max_retries} for {channel_name} on {self.device_name}: {retry_e}")
+                    await asyncio.sleep(2.0)
+
         except Exception as e:
             logger.error(f"tune_channel error on {self.device_name}: {e}")
             return {
