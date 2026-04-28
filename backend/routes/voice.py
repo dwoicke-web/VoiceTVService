@@ -340,10 +340,34 @@ def _execute_watch_game(command: dict, loop) -> dict:
                 'voice_response': f"I couldn't find a game for the {team} right now"
             }
 
-        # Get the best app to launch
+        # Get the best app to launch with smart prioritization
         apps = game.get('watchable_apps', [])
-        app_name = apps[0]['app_name'] if apps else 'YouTubeTV'
         broadcast = game.get('broadcast_display', '')
+
+        # Prioritize NBC/NBCSN on YouTube TV over Peacock
+        app_name = 'YouTubeTV'  # default
+        if apps:
+            # Check if broadcast is NBC, NBCSN, or Peacock
+            broadcast_lower = broadcast.lower()
+            if any(x in broadcast_lower for x in ['nbc', 'nbcsn']):
+                # NBC/NBCSN broadcast available - check if any app offers YouTube TV
+                for app in apps:
+                    if app.get('app_name', '').lower() in ['youtubetv', 'youtube tv']:
+                        app_name = 'YouTubeTV'
+                        break
+                else:
+                    # YouTube TV not available, use first app
+                    app_name = apps[0]['app_name']
+            elif 'peacock' in broadcast_lower:
+                # Peacock broadcast - check if YouTube TV NBC/NBCSN is available instead
+                ytv_available = any(app.get('app_name', '').lower() in ['youtubetv', 'youtube tv'] for app in apps)
+                if ytv_available:
+                    app_name = 'YouTubeTV'
+                else:
+                    app_name = apps[0]['app_name']
+            else:
+                # Default: use first available app
+                app_name = apps[0]['app_name']
 
         # Build game description
         home = game.get('home_team', {}).get('short_name', '')
