@@ -92,18 +92,20 @@ def launch_content():
     Launch content on a specific TV
     Request body:
         - tv_id: TV identifier (fire TV position: upper_left, upper_right, etc.)
-        - content_id: Content identifier
-        - service: Streaming service name
+        - content_id: Content identifier (channel name for YouTubeTV)
+        - service: Streaming service name (YouTubeTV, Peacock, etc.)
+        - broadcast: Optional broadcast network name (NBC, ABC, etc.)
 
-    Routes the content launch to the corresponding Roku device that broadcasts
-    to the Fire TV's antenna channel
+    For YouTubeTV: tunes to the local channel (KSHB for NBC, KMBC for ABC, etc.)
+    For other services: routes to Roku device
     """
     data = request.get_json()
 
     tv_id = data.get('tv_id')
     content_id = data.get('content_id')
     service = data.get('service')
-    title = data.get('title')  # Optional: program title for searching
+    title = data.get('title')  # Optional: program title
+    broadcast = data.get('broadcast', '')  # Optional: broadcast network (NBC, ABC, etc.)
 
     if not all([tv_id, content_id, service]):
         return jsonify({'error': 'Missing required fields: tv_id, content_id, service'}), 400
@@ -112,7 +114,7 @@ def launch_content():
         # Initialize TV devices
         manager = _initialize_tv_devices()
 
-        # Get the Fire TV device (for reference)
+        # Get the Fire TV device
         fire_tv = manager.get_device(tv_id)
         if not fire_tv:
             return jsonify({
@@ -120,7 +122,18 @@ def launch_content():
                 'available_devices': list(manager.devices.keys())
             }), 404
 
-        # Get the corresponding Roku device (content source)
+        loop = _get_or_create_event_loop()
+
+        # Special handling for YouTube TV - tune to the local channel
+        if service.lower() in ['youtubetv', 'youtube tv']:
+            logger.info(f"Tuning {tv_id} to {content_id} on YouTube TV (broadcast: {broadcast})")
+            result = loop.run_until_complete(fire_tv.tune_channel(content_id))
+            set_now_playing(tv_id, service, title or content_id, channel=content_id)
+            result['tv_id'] = tv_id
+            result['fire_tv_name'] = fire_tv.device_name
+            return jsonify(result), 200
+
+        # For other services (Peacock, etc.) - launch on Roku
         roku_id = f'{tv_id}_roku'
         roku_device = manager.get_device(roku_id)
         if not roku_device:
@@ -129,10 +142,8 @@ def launch_content():
                 'available_devices': list(manager.devices.keys())
             }), 404
 
-        # Launch app on Roku device asynchronously
+        # Launch app on Roku device
         # The Fire TV will automatically show the antenna broadcast from the Roku
-        # on its assigned antenna channel (7, 8, 10, or 11 depending on TV position)
-        loop = _get_or_create_event_loop()
         result = loop.run_until_complete(roku_device.launch_app(service, content_id, title=title))
 
         # Track what's now playing
