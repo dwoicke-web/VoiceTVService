@@ -126,8 +126,25 @@ def launch_content():
 
         # Special handling for YouTube TV - tune to the local channel
         if service.lower() in ['youtubetv', 'youtube tv']:
-            logger.info(f"Tuning {tv_id} to {content_id} on YouTube TV (broadcast: {broadcast})")
-            result = loop.run_until_complete(fire_tv.tune_channel(content_id))
+            logger.info(f"YouTube TV launch on {tv_id}: content_id='{content_id}', broadcast='{broadcast}'")
+
+            # For YouTube TV, prioritize broadcast network (NBC, ABC, etc) over content_id
+            # Extract the network name from broadcast field (e.g., "NBC, Peacock" → "NBC")
+            channel_to_tune = None
+
+            if broadcast:
+                # Get first network from broadcast (e.g., "NBC, Peacock" → "NBC")
+                network_name = broadcast.split(',')[0].strip()
+                # Only use if it's a known network, not a streaming service
+                if network_name.lower() not in ['peacock', 'espn+', 'hbo max']:
+                    channel_to_tune = network_name
+
+            # Fall back to content_id if no suitable network found
+            if not channel_to_tune:
+                channel_to_tune = content_id or 'YouTube'
+
+            logger.info(f"Tuning {tv_id} to '{channel_to_tune}' on YouTube TV")
+            result = loop.run_until_complete(fire_tv.tune_channel(channel_to_tune))
             set_now_playing(tv_id, service, title or content_id, channel=content_id)
             result['tv_id'] = tv_id
             result['fire_tv_name'] = fire_tv.device_name
