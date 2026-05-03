@@ -55,9 +55,22 @@ def _apply_app_prioritization(game):
         has_standard_network = any(net in broadcast for net in standard_networks)
 
         if has_standard_network:
-            ytv_app = {'app_name': 'YouTubeTV', 'source': 'standard_network_inject'}
-            apps.insert(0, ytv_app)
-            logger.info(f"Standard network broadcast {broadcast} - injecting YouTube TV")
+            # Extract the network name from broadcast_display (e.g., "NBC, Peacock" -> "NBC")
+            network_name = broadcast.split(',')[0].strip()
+            # Only use if it's a known network, not a streaming service
+            if network_name.lower() not in ['peacock', 'espn+', 'hbo max']:
+                ytv_app = {
+                    'app_name': 'YouTubeTV',
+                    'source': 'standard_network_inject',
+                    'broadcast_name': network_name.upper(),
+                    'network': network_name.upper()
+                }
+                apps.insert(0, ytv_app)
+                logger.info(f"Standard network broadcast {broadcast} - injecting YouTube TV with network={network_name.upper()}")
+            else:
+                ytv_app = {'app_name': 'YouTubeTV', 'source': 'standard_network_inject'}
+                apps.insert(0, ytv_app)
+                logger.info(f"Standard network broadcast {broadcast} - injecting YouTube TV (streaming service)")
 
     game['watchable_apps'] = apps
     return game

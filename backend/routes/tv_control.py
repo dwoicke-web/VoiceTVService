@@ -111,6 +111,9 @@ def launch_content():
         return jsonify({'error': 'Missing required fields: tv_id, content_id, service'}), 400
 
     try:
+        # Log the full request for debugging
+        logger.info(f"[/api/tv/launch] Full request: tv_id={tv_id}, service={service}, content_id={content_id}, broadcast={broadcast}, title={title}")
+
         # Initialize TV devices
         manager = _initialize_tv_devices()
 
@@ -126,7 +129,7 @@ def launch_content():
 
         # Special handling for YouTube TV - tune to the local channel
         if service.lower() in ['youtubetv', 'youtube tv']:
-            logger.info(f"YouTube TV launch on {tv_id}: content_id='{content_id}', broadcast='{broadcast}'")
+            logger.info(f"YouTube TV: Received content_id='{content_id}', broadcast='{broadcast}'")
 
             # For YouTube TV, prioritize broadcast network (NBC, ABC, etc) over content_id
             # Extract the network name from broadcast field (e.g., "NBC, Peacock" → "NBC")
