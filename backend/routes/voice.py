@@ -343,19 +343,30 @@ def _execute_watch_game(command: dict, loop) -> dict:
         # Get the best app to launch - YouTube TV always takes precedence
         apps = game.get('watchable_apps', [])
         broadcast = game.get('broadcast_display', '')
+        broadcast_lower = broadcast.lower()
+
+        # Standard broadcast networks available on YouTube TV
+        standard_networks = ['fox', 'cbs', 'nbc', 'abc', 'nbcsn', 'fs1', 'espn']
+        has_standard_network = any(net in broadcast_lower for net in standard_networks)
 
         app_name = 'YouTubeTV'  # Default to YouTube TV
 
-        # Check if YouTube TV is available in the watchable apps
-        if apps:
+        # PRIORITY 1: If broadcast is on a standard network, YouTube TV has it
+        if has_standard_network:
+            app_name = 'YouTubeTV'
+            logger.info(f"Game on standard network {broadcast} - launching YouTube TV")
+        # PRIORITY 2: Check if YouTube TV is explicitly in watchable_apps
+        elif apps:
             ytv_available = any(app.get('app_name', '').lower() in ['youtubetv', 'youtube tv'] for app in apps)
             if ytv_available:
                 app_name = 'YouTubeTV'
-                logger.info(f"Game on {broadcast} - YouTube TV available, launching YouTube TV")
+                logger.info(f"Game on {broadcast} - YouTube TV in watchable apps, launching YouTube TV")
             else:
-                # YouTube TV not available, use first available app
+                # YouTube TV not available via API, use first available app
                 app_name = apps[0]['app_name']
                 logger.info(f"Game on {broadcast} - YouTube TV not available, using {app_name}")
+        else:
+            logger.info(f"Game on {broadcast} - no apps found, defaulting to YouTube TV")
 
         # Build game description
         home = game.get('home_team', {}).get('short_name', '')
