@@ -27,9 +27,12 @@ def _get_or_create_event_loop():
 def _apply_app_prioritization(game):
     """Apply YouTube TV prioritization to game watchable_apps.
 
+    If broadcast is on a standard network, YouTube TV ALWAYS has it.
+    Injects YouTube TV into watchable_apps if needed.
+
     Priority:
     1. If broadcast is on standard network (FOX/CBS/NBC/ABC), use YouTube TV
-    2. If YouTube TV is available, always use it
+    2. If YouTube TV is available, always use it first
     3. Otherwise use first available app
     """
     if not game:
@@ -38,27 +41,29 @@ def _apply_app_prioritization(game):
     broadcast = game.get('broadcast_display', '').lower()
     apps = game.get('watchable_apps', [])
 
-    if not apps:
-        return game
-
     # Standard networks available on YouTube TV
     standard_networks = ['fox', 'cbs', 'nbc', 'abc', 'nbcsn', 'fs1', 'espn']
     has_standard_network = any(net in broadcast for net in standard_networks)
 
-    # PRIORITY 1: Standard network → use YouTube TV
+    # PRIORITY 1: Standard network broadcast → YouTube TV always has it
     if has_standard_network:
         ytv_app = next((app for app in apps if app.get('app_name', '').lower() in ['youtubetv', 'youtube tv']), None)
-        if ytv_app:
-            # Move YouTube TV to front of list
+
+        if not ytv_app:
+            # YouTube TV not in list but standard network is broadcast → inject it
+            ytv_app = {'app_name': 'YouTubeTV', 'source': 'standard_network'}
+            apps.insert(0, ytv_app)
+            logger.info(f"Standard network broadcast {broadcast} - injecting YouTube TV into watchable apps")
+        else:
+            # Move YouTube TV to front
             apps.remove(ytv_app)
             apps.insert(0, ytv_app)
-            logger.info(f"Standard network {broadcast} - prioritizing YouTube TV")
+            logger.info(f"Standard network broadcast {broadcast} - prioritizing YouTube TV")
 
-    # PRIORITY 2: YouTube TV not in standard network → check if available
-    elif not has_standard_network:
+    # PRIORITY 2: Non-standard network but YouTube TV available
+    elif apps:
         ytv_app = next((app for app in apps if app.get('app_name', '').lower() in ['youtubetv', 'youtube tv']), None)
         if ytv_app:
-            # Move YouTube TV to front of list
             apps.remove(ytv_app)
             apps.insert(0, ytv_app)
             logger.info(f"Game on {broadcast} - YouTube TV available, prioritizing")
