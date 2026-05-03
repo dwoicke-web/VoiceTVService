@@ -133,18 +133,9 @@ def launch_content():
             result['fire_tv_name'] = fire_tv.device_name
             return jsonify(result), 200
 
-        # For other services (Peacock, etc.) - launch on Roku
-        roku_id = f'{tv_id}_roku'
-        roku_device = manager.get_device(roku_id)
-        if not roku_device:
-            return jsonify({
-                'error': f'Roku device {roku_id} not found',
-                'available_devices': list(manager.devices.keys())
-            }), 404
-
-        # Launch app on Roku device
-        # The Fire TV will automatically show the antenna broadcast from the Roku
-        result = loop.run_until_complete(roku_device.launch_app(service, content_id, title=title))
+        # For other services (Peacock, ESPN+, etc.) - launch directly on Fire TV
+        logger.info(f"Launching {service} on {tv_id} (Fire TV direct)")
+        result = loop.run_until_complete(fire_tv.launch_app(service))
 
         # Track what's now playing
         set_now_playing(tv_id, service, title or content_id)
@@ -152,7 +143,6 @@ def launch_content():
         # Add Fire TV info to response
         result['tv_id'] = tv_id
         result['fire_tv_name'] = fire_tv.device_name
-        result['roku_device_id'] = roku_id
 
         return jsonify(result), 200
 

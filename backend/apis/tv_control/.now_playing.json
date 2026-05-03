@@ -1,0 +1,20 @@
+{
+  "lower_right": {
+    "service": "MLB",
+    "title": "Atlanta Braves vs Colorado Rockies",
+    "channel": null,
+    "started_at": "2026-05-02T20:23:08.064187"
+  },
+  "upper_right": {
+    "service": "YouTubeTV",
+    "title": "ABC",
+    "channel": "ABC",
+    "started_at": "2026-05-02T20:22:27.891377"
+  },
+  "lower_left": {
+    "service": "MLB",
+    "title": "Chicago White Sox vs San Diego Padres",
+    "channel": null,
+    "started_at": "2026-05-02T20:23:00.508782"
+  }
+}

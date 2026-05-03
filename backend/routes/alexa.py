@@ -205,7 +205,7 @@ def _exec_launch(command, loop):
 
     roku = _get_roku(tv_id)
     if roku:
-        loop.run_until_complete(roku.launch_app(service))
+        loop.run_until_complete(fire_tv.launch_app(service))
         tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
         return {'status': 'success', 'voice_response': f"Launching {service} on {tv_name}"}
     else:
@@ -246,7 +246,7 @@ def _exec_watch_game(command, loop):
 
         roku = _get_roku(tv_id)
         if roku:
-            loop.run_until_complete(roku.launch_app(app_name))
+            loop.run_until_complete(fire_tv.launch_app(app_name))
             tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
             return {'status': 'success',
                     'voice_response': f"{game_desc}. On {broadcast}. Launching {app_name} on {tv_name}."}
@@ -275,12 +275,12 @@ def _exec_play(command, loop):
 
     # MLB team detected → launch MLB app directly
     if service == 'MLB' or mlb_team:
-        loop.run_until_complete(roku.launch_app('MLB'))
+        loop.run_until_complete(fire_tv.launch_app('MLB'))
         return {'status': 'success', 'voice_response': f"Opening MLB for {mlb_team or content_name} on {tv_name}"}
 
     # Known streaming service → launch that app
     if service:
-        loop.run_until_complete(roku.launch_app(service, content_id=content_name, title=content_name))
+        loop.run_until_complete(fire_tv.launch_app(service, content_id=content_name, title=content_name))
         return {'status': 'success', 'voice_response': f"Playing {content_name} on {tv_name}"}
 
     # Generic content → use Roku search to find it

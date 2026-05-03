@@ -306,18 +306,37 @@ def _execute_launch_app(command: dict, loop) -> dict:
             'app': app_name
         }
 
-    # Other apps launch on Roku (broadcasts to Fire TV)
-    roku = _get_roku(tv_id)
-    if roku:
-        result = loop.run_until_complete(roku.launch_app(service))
-        result['voice_response'] = f"Launching {service} on {tv_name}"
-        return result
-    else:
+    # All other apps launch directly on Fire TV
+    fire_tv = _get_fire_tv(tv_id)
+    if not fire_tv:
         return {
             'status': 'error',
-            'message': f'No Roku configured for {tv_id}',
-            'voice_response': f"Cannot find Roku for {tv_id.replace('_', ' ')}"
+            'message': f'No Fire TV configured for {tv_id}',
+            'voice_response': f"Cannot find Fire TV for {tv_id.replace('_', ' ')}"
         }
+
+    # Launch in background thread
+    def launch_app_bg():
+        try:
+            async def launch_sequence():
+                await fire_tv.power_on()
+                await asyncio.sleep(2)
+                result = await fire_tv.launch_app(service)
+                return result
+            loop.run_until_complete(launch_sequence())
+        except Exception as e:
+            logger.error(f"Error launching {service} on {tv_name}: {e}")
+
+    thread = threading.Thread(target=launch_app_bg, daemon=True)
+    thread.start()
+
+    return {
+        'status': 'success',
+        'message': f'Launching {service} on {tv_name} (device waking)',
+        'voice_response': f"Launching {service} on {tv_name}",
+        'device_id': tv_id,
+        'app': service
+    }
 
 
 def _execute_watch_game(command: dict, loop) -> dict:
@@ -417,10 +436,23 @@ def _execute_watch_game(command: dict, loop) -> dict:
                     'voice_response': f"Found {team} game on {broadcast} but no Fire TV for {tv_id.replace('_', ' ')}"
                 }
 
-        # Other apps (ESPN+, etc.) launch on Roku
-        roku = _get_roku(tv_id)
-        if roku:
-            loop.run_until_complete(roku.launch_app(app_name))
+        # Other apps (ESPN+, Peacock, etc.) launch directly on Fire TV
+        fire_tv = _get_fire_tv(tv_id)
+        if fire_tv:
+            def launch_game_on_firetv_alt():
+                try:
+                    async def launch_sequence():
+                        await fire_tv.power_on()
+                        await asyncio.sleep(2)
+                        result = await fire_tv.launch_app(app_name)
+                        return result
+                    loop.run_until_complete(launch_sequence())
+                except Exception as e:
+                    logger.error(f"Error launching {app_name} for {team} game on {tv_name}: {e}")
+
+            thread = threading.Thread(target=launch_game_on_firetv_alt, daemon=True)
+            thread.start()
+
             voice = f"The {team} game: {game_desc}. On {broadcast}. Launching {app_name} on {tv_name}."
             return {
                 'status': 'success',
@@ -431,8 +463,8 @@ def _execute_watch_game(command: dict, loop) -> dict:
         else:
             return {
                 'status': 'error',
-                'message': f'No Roku for {tv_id}',
-                'voice_response': f"Found {team} game on {broadcast} but no Roku for {tv_id.replace('_', ' ')}"
+                'message': f'No Fire TV for {tv_id}',
+                'voice_response': f"Found {team} game on {broadcast} but no Fire TV for {tv_id.replace('_', ' ')}"
             }
 
     except Exception as e:
@@ -441,7 +473,7 @@ def _execute_watch_game(command: dict, loop) -> dict:
 
 
 def _execute_play(command: dict, loop) -> dict:
-    """Execute play content - routes to MLB app for baseball teams, Roku search for generic content"""
+    """Execute play content - launch apps directly on Fire TV"""
     content_name = command.get('content_name')
     tv_id = command.get('tv_id')
     service = command.get('service')
@@ -452,28 +484,79 @@ def _execute_play(command: dict, loop) -> dict:
     if not tv_id:
         tv_id = 'upper_left'
 
-    roku = _get_roku(tv_id)
-    if not roku:
-        return {'status': 'error', 'message': f'No Roku for {tv_id}'}
+    fire_tv = _get_fire_tv(tv_id)
+    if not fire_tv:
+        return {'status': 'error', 'message': f'No Fire TV configured for {tv_id}'}
 
     tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
 
-    # MLB team detected → launch MLB app directly
+    # MLB team detected → launch MLB app directly on Fire TV
     if service == 'MLB' or mlb_team:
-        result = loop.run_until_complete(roku.launch_app('MLB'))
-        result['voice_response'] = f"Opening MLB for {mlb_team or content_name} on {tv_name}"
-        return result
+        def launch_mlb_bg():
+            try:
+                async def launch_sequence():
+                    await fire_tv.power_on()
+                    await asyncio.sleep(2)
+                    result = await fire_tv.launch_app('MLB')
+                    return result
+                loop.run_until_complete(launch_sequence())
+            except Exception as e:
+                logger.error(f"Error launching MLB on {tv_name}: {e}")
 
-    # Known streaming service → launch that app
+        thread = threading.Thread(target=launch_mlb_bg, daemon=True)
+        thread.start()
+
+        return {
+            'status': 'success',
+            'message': f'Opening MLB for {mlb_team or content_name} on {tv_name}',
+            'voice_response': f"Opening MLB for {mlb_team or content_name} on {tv_name}",
+            'device_id': tv_id
+        }
+
+    # Known streaming service → launch that app on Fire TV
     if service:
-        result = loop.run_until_complete(roku.launch_app(service, content_id=content_name, title=content_name))
-        result['voice_response'] = f"Playing {content_name} on {tv_name}"
-        return result
+        def launch_service_bg():
+            try:
+                async def launch_sequence():
+                    await fire_tv.power_on()
+                    await asyncio.sleep(2)
+                    result = await fire_tv.launch_app(service)
+                    return result
+                loop.run_until_complete(launch_sequence())
+            except Exception as e:
+                logger.error(f"Error launching {service} on {tv_name}: {e}")
 
-    # Generic content → use Roku search/browse to find it
-    result = loop.run_until_complete(roku.search_content(content_name))
-    result['voice_response'] = f"Searching for {content_name} on {tv_name}"
-    return result
+        thread = threading.Thread(target=launch_service_bg, daemon=True)
+        thread.start()
+
+        return {
+            'status': 'success',
+            'message': f'Playing {content_name} on {tv_name}',
+            'voice_response': f"Playing {content_name} on {tv_name}",
+            'device_id': tv_id
+        }
+
+    # Generic content - just launch a default app (YouTube)
+    def launch_default_bg():
+        try:
+            async def launch_sequence():
+                await fire_tv.power_on()
+                await asyncio.sleep(2)
+                result = await fire_tv.launch_app('YouTube')
+                return result
+            loop.run_until_complete(launch_sequence())
+        except Exception as e:
+            logger.error(f"Error launching YouTube on {tv_name}: {e}")
+
+    thread = threading.Thread(target=launch_default_bg, daemon=True)
+    thread.start()
+
+    return {
+        'status': 'success',
+        'message': f'Opening YouTube to search for {content_name} on {tv_name}',
+        'voice_response': f"Opening YouTube to search for {content_name} on {tv_name}",
+        'device_id': tv_id
+    }
 
 
 def _execute_search(command: dict, loop) -> dict:
