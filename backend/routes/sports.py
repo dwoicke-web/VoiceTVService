@@ -24,6 +24,49 @@ def _get_or_create_event_loop():
         return loop
 
 
+def _apply_app_prioritization(game):
+    """Apply YouTube TV prioritization to game watchable_apps.
+
+    Priority:
+    1. If broadcast is on standard network (FOX/CBS/NBC/ABC), use YouTube TV
+    2. If YouTube TV is available, always use it
+    3. Otherwise use first available app
+    """
+    if not game:
+        return game
+
+    broadcast = game.get('broadcast_display', '').lower()
+    apps = game.get('watchable_apps', [])
+
+    if not apps:
+        return game
+
+    # Standard networks available on YouTube TV
+    standard_networks = ['fox', 'cbs', 'nbc', 'abc', 'nbcsn', 'fs1', 'espn']
+    has_standard_network = any(net in broadcast for net in standard_networks)
+
+    # PRIORITY 1: Standard network → use YouTube TV
+    if has_standard_network:
+        ytv_app = next((app for app in apps if app.get('app_name', '').lower() in ['youtubetv', 'youtube tv']), None)
+        if ytv_app:
+            # Move YouTube TV to front of list
+            apps.remove(ytv_app)
+            apps.insert(0, ytv_app)
+            logger.info(f"Standard network {broadcast} - prioritizing YouTube TV")
+
+    # PRIORITY 2: YouTube TV not in standard network → check if available
+    elif not has_standard_network:
+        ytv_app = next((app for app in apps if app.get('app_name', '').lower() in ['youtubetv', 'youtube tv']), None)
+        if ytv_app:
+            # Move YouTube TV to front of list
+            apps.remove(ytv_app)
+            apps.insert(0, ytv_app)
+            logger.info(f"Game on {broadcast} - YouTube TV available, prioritizing")
+
+    game['watchable_apps'] = apps
+    return game
+
+
 @sports_bp.route('/games', methods=['GET'])
 def get_games():
     """Get live/upcoming/completed games from ESPN.
@@ -48,6 +91,10 @@ def get_games():
             scoreboard.fetch_all_games(sport=sport, team=team, status_filter=status_filter)
         )
 
+        # Apply YouTube TV prioritization to all games
+        if result and 'games' in result:
+            result['games'] = [_apply_app_prioritization(game) for game in result['games']]
+
         return jsonify(result), 200
 
     except Exception as e:
@@ -71,6 +118,10 @@ def get_league_games(league):
             scoreboard.fetch_all_games(sport=league)
         )
 
+        # Apply YouTube TV prioritization to all games
+        if result and 'games' in result:
+            result['games'] = [_apply_app_prioritization(game) for game in result['games']]
+
         return jsonify(result), 200
 
     except Exception as e:
@@ -83,7 +134,7 @@ def get_team_game(team_name):
     """Find the current/upcoming game for a specific team.
 
     Returns the most relevant game (live > upcoming > final) and
-    which streaming app to launch it on.
+    which streaming app to launch it on. Prioritizes YouTube TV.
 
     Path params:
         team_name: Team name (e.g., 'penguins', 'pittsburgh penguins', 'PIT')
@@ -96,6 +147,10 @@ def get_team_game(team_name):
         game = loop.run_until_complete(
             scoreboard.find_team_game(team_name)
         )
+
+        # Apply YouTube TV prioritization to the game data
+        if game:
+            game = _apply_app_prioritization(game)
 
         if not game:
             return jsonify({
