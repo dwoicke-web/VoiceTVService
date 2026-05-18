@@ -44,9 +44,11 @@ BROADCAST_TO_APP = {
     'espn+': 'ESPN+',
 
     # NBC/Peacock family
-    'nbc': 'Peacock',
+    # NBC and NBCSN are on YouTube TV — tune directly via channel map
+    # Peacock is streaming-only — launch the app
+    'nbc': 'YouTubeTV',
+    'nbcsn': 'YouTubeTV',
     'peacock': 'Peacock',
-    'nbcsn': 'Peacock',
     'usa network': 'Peacock',
     'cnbc': 'Peacock',
 
