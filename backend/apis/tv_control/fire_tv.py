@@ -134,7 +134,7 @@ class FireTVDevice(TVDevice):
         # App package name mappings for Fire TV
         self.app_packages = {
             'YouTubeTV': 'com.amazon.firetv.youtube.tv',
-            'Peacock': 'com.peacocktv.peacockandroid',
+            'Peacock': 'com.peacock.peacockfiretv',
             'ESPN+': 'com.espn.gtv',
             'Prime Video': 'com.amazon.amazonvideo.livingroom',
             'HBO Max': 'com.hbo.hbomax',
