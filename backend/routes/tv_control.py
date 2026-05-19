@@ -442,8 +442,10 @@ def tune_channel():
         def _bg_tune():
             try:
                 bg_loop = asyncio.new_event_loop()
-                bg_loop.run_until_complete(fire_tv.tune_channel(channel))
+                result = bg_loop.run_until_complete(fire_tv.tune_channel(channel))
                 bg_loop.close()
+                if result.get('status') != 'success':
+                    logger.error(f"tune_channel failed on {tv_id}: {result.get('message')}")
             except Exception as e:
                 logger.error(f"Background tune_channel error: {e}")
 
