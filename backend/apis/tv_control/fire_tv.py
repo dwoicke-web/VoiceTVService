@@ -188,7 +188,11 @@ class FireTVDevice(TVDevice):
             package = self.app_packages.get(app_name)
             if not package:
                 return {'status': 'error', 'message': f'App {app_name} not supported'}
-            await self._run_cmd(f'am start {package}')
+            output = await self._run_cmd(f'am start {package}')
+            if 'Error' in output or 'Exception' in output:
+                logger.error(f"Failed to launch {app_name} on {self.device_name}: {output.strip()}")
+                return {'status': 'error', 'message': f'{app_name} not installed on {self.device_name}',
+                        'device_id': self.device_id, 'output': output.strip()}
             logger.info(f"Launched {app_name} on {self.device_name}")
             return {
                 'status': 'success', 'message': f'Launching {app_name} on {self.device_name}',
