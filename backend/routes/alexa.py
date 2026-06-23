@@ -31,10 +31,10 @@ alexa_bp = Blueprint('alexa', __name__, url_prefix='/api/alexa')
 # --- Shared helpers (same as voice.py) ---
 
 FIRE_TVS = {
-    'upper_left': {'name': 'Upper Left', 'ip': '192.168.4.80', 'channel': 7},
-    'upper_right': {'name': 'Upper Right', 'ip': '192.168.4.78', 'channel': 10},
-    'lower_left': {'name': 'Lower Left', 'ip': '192.168.4.93', 'channel': 8},
-    'lower_right': {'name': 'Lower Right', 'ip': '192.168.4.108', 'channel': 11},
+    'upper_left': {'name': 'Upper Left', 'ip': '192.168.4.40', 'channel': 7},
+    'upper_right': {'name': 'Upper Right', 'ip': '192.168.4.41', 'channel': 10},
+    'lower_left': {'name': 'Lower Left', 'ip': '192.168.4.38', 'channel': 8},
+    'lower_right': {'name': 'Lower Right', 'ip': '192.168.4.39', 'channel': 11},
 }
 
 

@@ -14,25 +14,18 @@ import logging
 import socket
 from typing import Dict, Any, Optional
 from pathlib import Path
-from contextlib import contextmanager
+import subprocess
 from . import TVDevice
 
 logger = logging.getLogger(__name__)
 
 # MAC address mapping for Wake-on-LAN
 FIRE_TV_MAC_ADDRESSES = {
-    '192.168.4.80': '08:97:98:20:57:a5',   # Upper Left
-    '192.168.4.93': '08:97:98:20:57:a4',   # Lower Left
-    '192.168.4.78': '08:97:98:20:68:da',   # Upper Right
-    '192.168.4.108': '08:97:98:20:57:94',  # Lower Right
+    '192.168.4.40': '08:97:98:20:57:a5',   # Upper Left
+    '192.168.4.38': '08:97:98:20:57:a4',   # Lower Left
+    '192.168.4.41': '08:97:98:20:68:da',   # Upper Right
+    '192.168.4.39': '08:97:98:20:57:94',  # Lower Right
 }
-
-# RSA key path for ADB authentication
-ADB_KEY_PATH = Path.home() / '.android' / 'adbkey'
-
-# Cache the signer object (keys don't change)
-_cached_signer = None
-
 
 def _send_wol(mac_address: str):
     """Send Wake-on-LAN magic packet to wake a sleeping device"""
@@ -46,77 +39,36 @@ def _send_wol(mac_address: str):
     logger.info(f"Sent Wake-on-LAN packet to {mac_address}")
 
 
-def _get_signer():
-    """Get or create RSA signer for ADB authentication"""
-    global _cached_signer
-    if _cached_signer:
-        return _cached_signer
-
-    from adb_shell.auth.keygen import keygen
-    from adb_shell.auth.sign_pythonrsa import PythonRSASigner
-
-    key_dir = ADB_KEY_PATH.parent
-    key_dir.mkdir(parents=True, exist_ok=True)
-
-    if not ADB_KEY_PATH.exists():
-        keygen(str(ADB_KEY_PATH))
-        logger.info(f"Generated ADB RSA keys at {ADB_KEY_PATH}")
-
-    with open(str(ADB_KEY_PATH), 'r') as f:
-        priv_key = f.read()
-
-    pub_key_path = str(ADB_KEY_PATH) + '.pub'
-    if os.path.exists(pub_key_path):
-        with open(pub_key_path, 'r') as f:
-            pub_key = f.read()
-    else:
-        pub_key = ''
-
-    _cached_signer = PythonRSASigner(pub_key, priv_key)
-    return _cached_signer
-
-
-@contextmanager
-def _adb_connection(ip: str, port: int = 5555, timeout: float = 10.0):
-    """Context manager that creates a fresh ADB connection and closes it when done.
-
-    Usage:
-        with _adb_connection('192.168.4.80') as device:
-            device.shell('input keyevent KEYCODE_SLEEP')
-    """
-    from adb_shell.adb_device import AdbDeviceTcp
-
-    signer = _get_signer()
-    device = AdbDeviceTcp(ip, port, default_transport_timeout_s=timeout)
-
-    try:
-        device.connect(rsa_keys=[signer], auth_timeout_s=timeout)
-        logger.info(f"ADB connected to {ip}:{port}")
-        yield device
-    finally:
-        try:
-            device.close()
-        except Exception:
-            pass
-
-
 def _run_adb_command(ip: str, cmd: str, port: int = 5555, timeout: float = 10.0) -> str:
-    """Run a single ADB shell command with a fresh connection (synchronous)"""
-    with _adb_connection(ip, port, timeout) as device:
-        result = device.shell(cmd, timeout_s=timeout)
-        return result.strip() if result else ""
+    """Run a single ADB shell command via system adb"""
+    try:
+        result = subprocess.run(
+            ['adb', '-s', f'{ip}:{port}', 'shell', cmd],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        if result.returncode != 0:
+            logger.debug(f"ADB command returned non-zero: {result.stderr}")
+            return result.stdout.strip() if result.stdout else ""
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        logger.error(f"ADB command timeout: {cmd}")
+        return ""
+    except Exception as e:
+        logger.error(f"ADB command error: {e}")
+        return ""
 
 
 def _run_adb_commands(ip: str, commands: list, port: int = 5555, timeout: float = 10.0) -> list:
-    """Run multiple ADB shell commands on a single connection (synchronous)"""
+    """Run multiple ADB shell commands via system adb"""
+    import time
     results = []
-    with _adb_connection(ip, port, timeout) as device:
-        for cmd, delay in commands:
-            result = device.shell(cmd, timeout_s=timeout)
-            results.append(result.strip() if result else "")
-            if delay > 0:
-                import time
-                time.sleep(delay)
+    for cmd, delay in commands:
+        result = _run_adb_command(ip, cmd, port, timeout)
+        results.append(result)
+        if delay > 0:
+            time.sleep(delay)
     return results
 
 

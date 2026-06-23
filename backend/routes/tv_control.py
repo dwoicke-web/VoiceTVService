@@ -506,10 +506,10 @@ def launch_mlb_game():
 
     # Fire TV IP lookup
     FIRE_TV_IPS = {
-        'upper_left': '192.168.4.80',
-        'upper_right': '192.168.4.78',
-        'lower_left': '192.168.4.93',
-        'lower_right': '192.168.4.108',
+        'upper_left': '192.168.4.40',
+        'upper_right': '192.168.4.41',
+        'lower_left': '192.168.4.38',
+        'lower_right': '192.168.4.39',
     }
     fire_tv_ip = FIRE_TV_IPS.get(tv_id)
     if not fire_tv_ip:
@@ -581,10 +581,10 @@ def launch_espn_game():
 
     # Fire TV IP lookup
     FIRE_TV_IPS = {
-        'upper_left': '192.168.4.80',
-        'upper_right': '192.168.4.78',
-        'lower_left': '192.168.4.93',
-        'lower_right': '192.168.4.108',
+        'upper_left': '192.168.4.40',
+        'upper_right': '192.168.4.41',
+        'lower_left': '192.168.4.38',
+        'lower_right': '192.168.4.39',
     }
     fire_tv_ip = FIRE_TV_IPS.get(tv_id)
     if not fire_tv_ip:
@@ -641,10 +641,10 @@ def cancel_operations():
 
         # Also kill any lingering uiautomator processes on Fire TVs
         FIRE_TV_IPS = {
-            'upper_left': '192.168.4.80',
-            'upper_right': '192.168.4.78',
-            'lower_left': '192.168.4.93',
-            'lower_right': '192.168.4.108',
+            'upper_left': '192.168.4.40',
+            'upper_right': '192.168.4.41',
+            'lower_left': '192.168.4.38',
+            'lower_right': '192.168.4.39',
         }
         for name, ip in FIRE_TV_IPS.items():
             try:
