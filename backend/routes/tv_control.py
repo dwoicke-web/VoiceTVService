@@ -825,3 +825,52 @@ def test_ytv_deep_link(channel_name):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@tv_control_bp.route('/fire-tv/restore-settings', methods=['POST'])
+def restore_fire_tv_settings():
+    """Restore critical Fire TV settings to prevent ADB daemon crashes.
+
+    Runs configure_fire_tv_settings.sh on all Fire TVs.
+    Returns status of configuration on each device.
+    """
+    import subprocess
+
+    script_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        'configure_fire_tv_settings.sh'
+    )
+
+    if not os.path.exists(script_path):
+        return jsonify({
+            'status': 'error',
+            'message': f'Configuration script not found at {script_path}'
+        }), 404
+
+    try:
+        logger.info("Restoring Fire TV settings via configure_fire_tv_settings.sh...")
+        result = subprocess.run(
+            ['/bin/bash', script_path],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        return jsonify({
+            'status': 'success' if result.returncode == 0 else 'error',
+            'message': 'Fire TV settings restored on all devices',
+            'output': result.stdout,
+            'errors': result.stderr if result.returncode != 0 else None
+        }), 200
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'message': 'Configuration script timeout (exceeded 60s)'
+        }), 500
+    except Exception as e:
+        logger.error(f"Failed to restore Fire TV settings: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to restore settings: {str(e)}'
+        }), 500

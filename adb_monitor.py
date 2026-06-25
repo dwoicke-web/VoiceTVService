@@ -36,7 +36,7 @@ def check_all_devices():
     for ip, name in FIRE_TVS.items():
         if _is_adb_responsive(ip):
             online_devices.append(name)
-            logger.debug(f"✓ {name} ({ip}): ADB responsive")
+            logger.info(f"✓ {name} ({ip}): ADB responsive")
         else:
             offline_devices.append((ip, name))
             logger.warning(f"✗ {name} ({ip}): ADB offline")

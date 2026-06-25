@@ -257,6 +257,23 @@ const Dashboard = () => {
     }
   };
 
+  const handleRestoreFireTVSettings = async () => {
+    try {
+      setIsLoading(true);
+      console.log('[DEBUG] Restoring Fire TV settings...');
+      const response = await axios.post('/api/tv/fire-tv/restore-settings');
+      console.log('[DEBUG] Restore response:', response.data);
+      alert('✅ Fire TV settings restored on all devices');
+      setError(null);
+    } catch (err) {
+      console.error('Error restoring Fire TV settings:', err);
+      console.error('Error details:', err.response?.data || err.message);
+      setError('Failed to restore Fire TV settings');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // If debug dashboard is active, show it instead
   if (showDebugDashboard) {
     return (
@@ -313,6 +330,14 @@ const Dashboard = () => {
           title="Cancel all running ESPN/MLB launcher operations"
         >
           Cancel All Operations
+        </button>
+        <button
+          onClick={handleRestoreFireTVSettings}
+          disabled={isLoading}
+          className="restore-btn"
+          title="Restore critical Fire TV settings to prevent ADB crashes"
+        >
+          🔧 Restore Fire TV Settings
         </button>
       </div>
 
