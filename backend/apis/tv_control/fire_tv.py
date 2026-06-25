@@ -39,6 +39,51 @@ def _send_wol(mac_address: str):
     logger.info(f"Sent Wake-on-LAN packet to {mac_address}")
 
 
+def _is_adb_responsive(ip: str, port: int = 5555, timeout: float = 5.0) -> bool:
+    """Check if ADB device is responsive (not offline)"""
+    try:
+        result = subprocess.run(
+            ['adb', '-s', f'{ip}:{port}', 'shell', 'getprop ro.serialno'],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        return result.returncode == 0 and result.stdout.strip()
+    except:
+        return False
+
+
+def _attempt_adb_recovery(ip: str, device_name: str, port: int = 5555) -> bool:
+    """Attempt to recover offline ADB by sending WoL and waiting for response.
+
+    Returns True if recovery successful, False otherwise.
+    """
+    import time
+    mac = FIRE_TV_MAC_ADDRESSES.get(ip)
+    if not mac:
+        logger.error(f"No MAC address found for {ip}")
+        return False
+
+    logger.warning(f"ADB offline for {device_name} ({ip}). Attempting recovery via WoL...")
+
+    # Send WoL to power-cycle the device
+    try:
+        _send_wol(mac)
+    except Exception as e:
+        logger.error(f"WoL recovery failed for {device_name}: {e}")
+        return False
+
+    # Wait and check if ADB comes back
+    for attempt in range(1, 31):  # Try for ~2.5 minutes (30 * 5 sec checks)
+        time.sleep(5)
+        if _is_adb_responsive(ip, port):
+            logger.info(f"ADB recovered for {device_name} after {attempt * 5}s")
+            return True
+
+    logger.critical(f"ADB recovery FAILED for {device_name} ({ip}). Manual hard reset required.")
+    return False
+
+
 def _run_adb_command(ip: str, cmd: str, port: int = 5555, timeout: float = 10.0) -> str:
     """Run a single ADB shell command via system adb"""
     try:
@@ -49,6 +94,8 @@ def _run_adb_command(ip: str, cmd: str, port: int = 5555, timeout: float = 10.0)
             timeout=timeout
         )
         if result.returncode != 0:
+            if 'offline' in result.stderr.lower() or 'device not found' in result.stderr.lower():
+                logger.warning(f"ADB device offline: {ip}. Attempting recovery...")
             logger.debug(f"ADB command returned non-zero: {result.stderr}")
             return result.stdout.strip() if result.stdout else ""
         return result.stdout.strip()

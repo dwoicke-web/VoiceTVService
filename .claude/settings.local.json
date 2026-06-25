@@ -8,7 +8,21 @@
       "Bash(- 4x 32\" Fire TVs positioned around center:*)",
       "Bash(python3 -m venv venv)",
       "Bash(source venv/bin/activate)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(systemctl status *)",
+      "Bash(ping -c 1 192.168.4.80)",
+      "Bash(ping -c 1 192.168.4.78)",
+      "Bash(ping -c 1 192.168.4.93)",
+      "Bash(ping -c 1 192.168.4.108)",
+      "Bash(ip route *)",
+      "Bash(cat /etc/systemd/network/*.network 2>/dev/null | head -50)",
+      "Bash(ls -la /etc/network/interfaces* /etc/dhcp/ 2>/dev/null | head -20)",
+      "Bash(sudo systemctl restart systemd-networkd)",
+      "Bash(sudo arp-scan --localnet)",
+      "Bash(arp -a)",
+      "Bash(curl -s -X POST http://localhost:5002/api/tv/power -H 'Content-Type: application/json' -d '{\"tv_id\": \"upper_left\", \"action\": \"on\"}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:5002/api/tv/launch -H 'Content-Type: application/json' -d '{ *)"
     ]
   }
 }
