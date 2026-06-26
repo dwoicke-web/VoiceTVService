@@ -1,1 +1,26 @@
-{}
+{
+  "upper_left": {
+    "service": "MLB",
+    "title": "New York Yankees vs Boston Red Sox",
+    "channel": null,
+    "started_at": "2026-06-25T19:22:31.686696"
+  },
+  "upper_right": {
+    "service": "MLB",
+    "title": "Houston Astros vs Detroit Tigers",
+    "channel": null,
+    "started_at": "2026-06-25T19:22:24.781087"
+  },
+  "lower_left": {
+    "service": "MLB",
+    "title": "New York Yankees vs Boston Red Sox",
+    "channel": null,
+    "started_at": "2026-06-25T19:13:18.925018"
+  },
+  "lower_right": {
+    "service": "YouTubeTV",
+    "title": "ESPNU",
+    "channel": "ESPNU",
+    "started_at": "2026-06-25T19:13:00.511623"
+  }
+}
