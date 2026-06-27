@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Monitor ADB connectivity and attempt recovery if devices go offline.
+"""Monitor ADB connectivity for observability (does not wake devices).
 
-Run every 5 minutes via cron to detect and recover from ADB daemon crashes.
-If recovery fails, logs critical error for manual intervention.
+Run periodically via cron to record which Fire TVs are reachable over ADB.
+This is purely for visibility/diagnostics: the backend reconnects ADB on
+demand before every command (see fire_tv._run_adb_command), so a TV that is
+simply asleep needs no recovery here - it will reconnect the moment a command
+is sent. We deliberately do NOT send Wake-on-LAN from the monitor, so TVs are
+free to sleep normally instead of being woken every few minutes.
 """
 import sys
 import os
@@ -12,9 +16,7 @@ from datetime import datetime
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
 
-from apis.tv_control.fire_tv import (
-    _is_adb_responsive, _attempt_adb_recovery, FIRE_TV_MAC_ADDRESSES
-)
+from apis.tv_control.fire_tv import _is_adb_responsive
 from logging_config import setup_logging, get_logger
 
 setup_logging()
@@ -29,9 +31,8 @@ FIRE_TVS = {
 
 
 def check_all_devices():
-    """Check all Fire TVs and attempt recovery for offline devices."""
+    """Record which Fire TVs are reachable over ADB (no recovery, no WoL)."""
     import time
-    import subprocess
 
     offline_devices = []
     online_devices = []
@@ -48,43 +49,26 @@ def check_all_devices():
             subprocess.run(['bash', '-c', f'echo "{timestamp} - ONLINE - {name} ({ip})" >> /home/orangepi/Apps/VoiceTVService/logs/diagnostic.log'], check=False)
         else:
             offline_devices.append((ip, name))
-            logger.warning(f"✗ {name} ({ip}): ADB offline")
+            # Offline usually just means the TV is asleep/off; the backend will
+            # reconnect on demand when a command is sent, so this is informational.
+            logger.info(f"… {name} ({ip}): ADB not reachable (likely asleep/off)")
             # Also log to diagnostic file
             subprocess.run(['bash', '-c', f'echo "{timestamp} - OFFLINE - {name} ({ip})" >> /home/orangepi/Apps/VoiceTVService/logs/diagnostic.log'], check=False)
 
     # Log summary
-    status_msg = f"ADB Status: {len(online_devices)}/4 online - {', '.join(online_devices) if online_devices else 'NONE'}"
+    status_msg = f"ADB Status: {len(online_devices)}/4 reachable - {', '.join(online_devices) if online_devices else 'NONE'}"
     logger.info(status_msg)
     subprocess.run(['bash', '-c', f'echo "{timestamp} - SUMMARY - {status_msg}" >> /home/orangepi/Apps/VoiceTVService/logs/diagnostic.log && sync'], check=False)
-
-    # Attempt recovery for offline devices
-    if offline_devices:
-        logger.warning(f"Attempting recovery for {len(offline_devices)} offline device(s)...")
-        recovered = []
-        failed = []
-
-        for ip, name in offline_devices:
-            if _attempt_adb_recovery(ip, name):
-                recovered.append(name)
-            else:
-                failed.append(name)
-
-        if recovered:
-            logger.info(f"✓ Recovered: {', '.join(recovered)}")
-
-        if failed:
-            logger.critical(
-                f"✗ Recovery FAILED for {len(failed)} device(s): {', '.join(failed)}. "
-                f"Manual hard reset required."
-            )
 
     return len(offline_devices) == 0
 
 
 if __name__ == '__main__':
+    # Observability only: a sleeping/off TV is normal, not a failure, so we
+    # exit 0 regardless of reachability. Only a real crash is a non-zero exit.
     try:
-        all_online = check_all_devices()
-        sys.exit(0 if all_online else 1)
+        check_all_devices()
+        sys.exit(0)
     except Exception as e:
         logger.error(f"Monitor exception: {e}", exc_info=True)
         sys.exit(1)
