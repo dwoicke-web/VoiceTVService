@@ -12,6 +12,7 @@ from apis.voice.command_parser import get_command_parser
 from apis.sonos import get_sonos_manager
 from apis.tv_control.fire_tv import FireTVDevice
 from apis.tv_control.roku import RokuDevice
+from apis.tv_control.smartthings import SamsungSmartThingsDevice
 
 logger = logging.getLogger(__name__)
 voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
@@ -23,6 +24,20 @@ FIRE_TVS = {
     'lower_left': {'name': 'Lower Left', 'ip': '192.168.4.38', 'channel': 8},
     'lower_right': {'name': 'Lower Right', 'ip': '192.168.4.39', 'channel': 11},
 }
+
+# Center 75" Samsung Smart TV - controlled via SmartThings, not ADB/Fire TV
+BIG_SCREEN_ID = 'big_screen'
+BIG_SCREEN_NAME = 'Big Screen'
+
+
+def _get_big_screen() -> SamsungSmartThingsDevice:
+    """Get the center Samsung Smart TV (SmartThings) device."""
+    return SamsungSmartThingsDevice(
+        device_id=BIG_SCREEN_ID,
+        device_name=BIG_SCREEN_NAME,
+        smartthings_token=os.environ.get('SMARTTHINGS_TOKEN'),
+        smartthings_device_id=os.environ.get('SAMSUNG_SMARTTHINGS_DEVICE_ID')
+    )
 
 
 def _get_or_create_event_loop():
@@ -154,6 +169,15 @@ def _execute_power(command: dict, loop) -> dict:
             'devices_affected': successes,
             'voice_response': f"All TVs are now {'on' if action == 'on' else 'off'}"
         }
+    elif tv_id == BIG_SCREEN_ID:
+        # Center Samsung TV powers via SmartThings, not ADB
+        big_screen = _get_big_screen()
+        if action == 'on':
+            result = loop.run_until_complete(big_screen.power_on())
+        else:
+            result = loop.run_until_complete(big_screen.power_off())
+        result['voice_response'] = f"{BIG_SCREEN_NAME} is now {action}"
+        return result
     elif tv_id:
         device = _get_fire_tv(tv_id)
         if not device:
@@ -250,6 +274,29 @@ def _execute_launch_app(command: dict, loop) -> dict:
     # If no TV specified, use upper_left as default
     if not tv_id:
         tv_id = 'upper_left'
+
+    # Center Samsung TV launches apps via SmartThings remote navigation
+    if tv_id == BIG_SCREEN_ID:
+        big_screen = _get_big_screen()
+
+        def launch_big_screen_app_bg():
+            try:
+                async def launch_sequence():
+                    await big_screen.power_on()
+                    await asyncio.sleep(2)
+                    return await big_screen.launch_app(service)
+                loop.run_until_complete(launch_sequence())
+            except Exception as e:
+                logger.error(f"Error launching {service} on {BIG_SCREEN_NAME}: {e}")
+
+        threading.Thread(target=launch_big_screen_app_bg, daemon=True).start()
+        return {
+            'status': 'success',
+            'message': f'Launching {service} on {BIG_SCREEN_NAME} (device waking)',
+            'voice_response': f"Launching {service} on {BIG_SCREEN_NAME}",
+            'device_id': BIG_SCREEN_ID,
+            'app': service
+        }
 
     tv_name = FIRE_TVS.get(tv_id, {}).get('name', tv_id)
 
@@ -472,6 +519,46 @@ def _execute_watch_game(command: dict, loop) -> dict:
         return {'status': 'error', 'message': str(e), 'voice_response': f"Error finding {team} game"}
 
 
+def _execute_play_big_screen(content_name: str, service: str, mlb_team: str, loop) -> dict:
+    """Play content on the center Samsung TV via SmartThings remote navigation."""
+    big_screen = _get_big_screen()
+
+    # Pick which app to open on the Samsung home screen.
+    if service == 'MLB' or mlb_team:
+        app_name = 'MLB'
+    elif service:
+        app_name = service
+    else:
+        # Generic content - open YouTube to search (mirrors the Fire TV default)
+        app_name = 'YouTube'
+
+    def launch_big_screen_bg():
+        try:
+            async def launch_sequence():
+                await big_screen.power_on()
+                await asyncio.sleep(2)
+                return await big_screen.launch_app(app_name)
+            loop.run_until_complete(launch_sequence())
+        except Exception as e:
+            logger.error(f"Error launching {app_name} on {BIG_SCREEN_NAME}: {e}")
+
+    threading.Thread(target=launch_big_screen_bg, daemon=True).start()
+
+    if service == 'MLB' or mlb_team:
+        message = f'Opening MLB for {mlb_team or content_name} on {BIG_SCREEN_NAME}'
+    elif service:
+        message = f'Playing {content_name} on {BIG_SCREEN_NAME}'
+    else:
+        message = f'Opening YouTube to search for {content_name} on {BIG_SCREEN_NAME}'
+
+    return {
+        'status': 'success',
+        'message': message,
+        'voice_response': message,
+        'device_id': BIG_SCREEN_ID
+    }
+
+
 def _execute_play(command: dict, loop) -> dict:
     """Execute play content - launch apps directly on Fire TV"""
     content_name = command.get('content_name')
@@ -483,6 +570,10 @@ def _execute_play(command: dict, loop) -> dict:
         return {'status': 'error', 'message': 'What should I play?'}
     if not tv_id:
         tv_id = 'upper_left'
+
+    # Center Samsung TV is driven via SmartThings (remote navigation), not ADB
+    if tv_id == BIG_SCREEN_ID:
+        return _execute_play_big_screen(content_name, service, mlb_team, loop)
 
     fire_tv = _get_fire_tv(tv_id)
     if not fire_tv:

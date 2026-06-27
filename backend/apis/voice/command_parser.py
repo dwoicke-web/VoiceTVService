@@ -35,6 +35,12 @@ class CommandParser:
             'bottom left': 'lower_left',
             'lower right': 'lower_right',
             'bottom right': 'lower_right',
+            # Center 75" Samsung Smart TV (controlled via SmartThings)
+            'big screen': 'big_screen',
+            'big screen tv': 'big_screen',
+            'main tv': 'big_screen',
+            'center': 'big_screen',
+            'middle': 'big_screen',
             'all': 'all',
             'everything': 'all',
             'all tvs': 'all',
