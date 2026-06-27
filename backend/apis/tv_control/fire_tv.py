@@ -39,8 +39,54 @@ def _send_wol(mac_address: str):
     logger.info(f"Sent Wake-on-LAN packet to {mac_address}")
 
 
+def _adb_connect(ip: str, port: int = 5555, timeout: float = 10.0) -> bool:
+    """Establish (or refresh) the ADB TCP connection to a device.
+
+    Network ADB connections are dropped whenever a Fire TV sleeps or powers
+    off. After that, `adb -s ip:port shell ...` fails with 'device offline' or
+    'device not found' until `adb connect` is run again. We call this before
+    issuing commands so a TV that just woke up reconnects on demand instead of
+    staying dead until the next keepalive cron.
+
+    `adb connect` auto-starts the adb server if it isn't running, and prints
+    'connected to ...' or 'already connected to ...' on success.
+    """
+    try:
+        result = subprocess.run(
+            ['adb', 'connect', f'{ip}:{port}'],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        output = (result.stdout + result.stderr).lower()
+        return 'connected to' in output
+    except Exception as e:
+        logger.debug(f"adb connect {ip}:{port} failed: {e}")
+        return False
+
+
+def _adb_reconnect(ip: str, port: int = 5555) -> bool:
+    """Force a clean reconnect: drop any stale/offline entry, then connect.
+
+    Used when a command fails because the cached connection is offline. A plain
+    `adb connect` will not clear an entry stuck in the 'offline' state, so we
+    disconnect first.
+    """
+    try:
+        subprocess.run(
+            ['adb', 'disconnect', f'{ip}:{port}'],
+            capture_output=True, text=True, timeout=10.0
+        )
+    except Exception:
+        pass
+    return _adb_connect(ip, port)
+
+
 def _is_adb_responsive(ip: str, port: int = 5555, timeout: float = 5.0) -> bool:
     """Check if ADB device is responsive (not offline)"""
+    # A sleeping/rebooted TV drops its ADB connection, so (re)connect before
+    # probing - otherwise we'd report a perfectly healthy device as offline.
+    _adb_connect(ip, port, timeout=timeout)
     try:
         result = subprocess.run(
             ['adb', '-s', f'{ip}:{port}', 'shell', 'getprop ro.serialno'],
@@ -48,8 +94,8 @@ def _is_adb_responsive(ip: str, port: int = 5555, timeout: float = 5.0) -> bool:
             text=True,
             timeout=timeout
         )
-        return result.returncode == 0 and result.stdout.strip()
-    except:
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
         return False
 
 
@@ -85,26 +131,44 @@ def _attempt_adb_recovery(ip: str, device_name: str, port: int = 5555) -> bool:
 
 
 def _run_adb_command(ip: str, cmd: str, port: int = 5555, timeout: float = 10.0) -> str:
-    """Run a single ADB shell command via system adb"""
-    try:
-        result = subprocess.run(
-            ['adb', '-s', f'{ip}:{port}', 'shell', cmd],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-        if result.returncode != 0:
-            if 'offline' in result.stderr.lower() or 'device not found' in result.stderr.lower():
-                logger.warning(f"ADB device offline: {ip}. Attempting recovery...")
+    """Run a single ADB shell command via system adb.
+
+    Ensures a live ADB connection first, and transparently reconnects once if
+    the connection is stale/offline (the usual state after a TV has been off
+    for a while). Without this, the first command after power-on silently fails
+    because the network ADB connection was dropped while the device slept.
+    """
+    # Establish/refresh the connection before issuing the shell command.
+    _adb_connect(ip, port)
+
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                ['adb', '-s', f'{ip}:{port}', 'shell', cmd],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+
+            stderr = (result.stderr or '').lower()
+            is_stale = ('offline' in stderr or 'device not found' in stderr
+                        or 'no devices' in stderr or 'device still' in stderr)
+            if attempt == 0 and is_stale:
+                logger.warning(f"ADB device {ip} offline/stale; reconnecting and retrying...")
+                _adb_reconnect(ip, port)
+                continue
+
             logger.debug(f"ADB command returned non-zero: {result.stderr}")
             return result.stdout.strip() if result.stdout else ""
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        logger.error(f"ADB command timeout: {cmd}")
-        return ""
-    except Exception as e:
-        logger.error(f"ADB command error: {e}")
-        return ""
+        except subprocess.TimeoutExpired:
+            logger.error(f"ADB command timeout: {cmd}")
+            return ""
+        except Exception as e:
+            logger.error(f"ADB command error: {e}")
+            return ""
+    return ""
 
 
 def _run_adb_commands(ip: str, commands: list, port: int = 5555, timeout: float = 10.0) -> list:
