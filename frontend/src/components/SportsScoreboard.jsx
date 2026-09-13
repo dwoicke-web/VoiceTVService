@@ -82,6 +82,20 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs, onGameLaunched }) => {
           title: `${game.away_team.name} vs ${game.home_team.name}`,
           service: serviceName
         });
+      // NFL games on CBS/FOX: these are regional Sunday-afternoon broadcasts —
+      // the KC local affiliate (KCTV 5 / FOX 4) only carries ONE specific
+      // matchup per time slot, not necessarily the one requested, so a direct
+      // tune can silently show the wrong game. Navigate YouTube TV's on-screen
+      // NFL row to the specific matchup instead. NBC/ESPN/ABC remain on direct
+      // tune below since those are single national broadcasts each week.
+      } else if (app.app_name === 'YouTubeTV' && game.league === 'NFL' &&
+                 (!app.broadcast_name || ['CBS', 'FOX'].includes(app.broadcast_name))) {
+        await axios.post('/api/tv/launch-nfl', {
+          tv_id: tvId,
+          away_team: game.away_team.short_name,
+          home_team: game.home_team.short_name,
+          title: `${game.away_team.name} vs ${game.home_team.name}`
+        });
       // YouTube TV broadcasts: tune to the channel via Fire TV (Cobalt deep link)
       } else if (app.app_name === 'YouTubeTV' && app.broadcast_name) {
         await axios.post('/api/tv/tune', {

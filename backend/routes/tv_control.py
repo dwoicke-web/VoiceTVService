@@ -19,6 +19,7 @@ from apis.tv_control.smartthings import SamsungSmartThingsDevice
 from apis.tv_control.fire_tv import FireTVDevice
 from apis.tv_control.roku import RokuDevice
 from apis.tv_control.now_playing import set_now_playing, clear_now_playing, clear_all as clear_all_now_playing, get_now_playing
+from apis.tv_control.launch_guard import ensure_daily_readiness, kill_launcher_for_ip
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -515,6 +516,9 @@ def launch_mlb_game():
     if not fire_tv_ip:
         return jsonify({'error': f'No Fire TV IP configured for {tv_id}'}), 404
 
+    ensure_daily_readiness()
+    kill_launcher_for_ip(fire_tv_ip)
+
     try:
         import subprocess
 
@@ -590,6 +594,9 @@ def launch_espn_game():
     if not fire_tv_ip:
         return jsonify({'error': f'No Fire TV IP configured for {tv_id}'}), 404
 
+    ensure_daily_readiness()
+    kill_launcher_for_ip(fire_tv_ip)
+
     try:
         import subprocess
 
@@ -627,14 +634,99 @@ def launch_espn_game():
         return jsonify({'error': 'Failed to launch ESPN', 'message': str(e)}), 500
 
 
+@tv_control_bp.route('/launch-nfl', methods=['POST'])
+def launch_nfl_game():
+    """Launch YouTube TV on a Fire TV and navigate to a specific NFL game.
+
+    Used for games that don't resolve to a direct-tune channel (chiefly NFL
+    Sunday Ticket out-of-market games) — national broadcasts on NBC/CBS/ABC/
+    FOX/ESPN are handled separately by /api/tv/tune's deep-link path and
+    never reach this route.
+
+    Uses screen-scrape navigation directly on Fire TV (no Roku):
+      1. Launch YouTube TV app on Fire TV via ADB
+      2. Scroll DOWN to find the NFL row
+      3. Scroll RIGHT through games, reading each tile's caption via OCR
+         (YouTube TV's Cobalt runtime exposes no accessibility tree)
+      4. Select the matching game and press through to Watch
+
+    Request body:
+        - tv_id: TV identifier (upper_left, upper_right, lower_left, lower_right)
+        - away_team: Away team name (e.g., 'Bears')
+        - home_team: Home team name (e.g., 'Panthers')
+        - title: Optional game title for logging
+    """
+    data = request.get_json()
+    tv_id = data.get('tv_id')
+    away_team = data.get('away_team', '')
+    home_team = data.get('home_team', '')
+    title = data.get('title', 'NFL game')
+
+    if not tv_id:
+        return jsonify({'error': 'Missing required field: tv_id'}), 400
+
+    if not away_team and not home_team:
+        return jsonify({'error': 'Missing required field: away_team or home_team'}), 400
+
+    # Fire TV IP lookup
+    FIRE_TV_IPS = {
+        'upper_left': '192.168.4.40',
+        'upper_right': '192.168.4.41',
+        'lower_left': '192.168.4.38',
+        'lower_right': '192.168.4.39',
+    }
+    fire_tv_ip = FIRE_TV_IPS.get(tv_id)
+    if not fire_tv_ip:
+        return jsonify({'error': f'No Fire TV IP configured for {tv_id}'}), 404
+
+    ensure_daily_readiness()
+    kill_launcher_for_ip(fire_tv_ip)
+
+    try:
+        import subprocess
+
+        # Launch as separate subprocess — each TV gets its own process and ADB connection
+        launcher_script = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'apis', 'tv_control', 'nfl_launcher.py'
+        )
+        python_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'venv', 'bin', 'python3'
+        )
+
+        cmd = [python_path, launcher_script, fire_tv_ip, away_team, home_team]
+
+        log_file = f'/tmp/nfl_launch_{tv_id}.log'
+        logger.info(f"NFL launching subprocess for {tv_id}: {' '.join(cmd)} > {log_file}")
+        with open(log_file, 'w') as lf:
+            subprocess.Popen(cmd, stdout=lf, stderr=lf)
+
+        # Track what's now playing
+        set_now_playing(tv_id, 'YouTubeTV', title)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Launching {title} on {tv_id}',
+            'tv_id': tv_id,
+            'title': title,
+            'method': 'screen-scrape',
+            'note': 'YouTube TV launching — navigating to NFL game automatically'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error launching NFL game: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to launch NFL game', 'message': str(e)}), 500
+
+
 @tv_control_bp.route('/cancel-operations', methods=['POST'])
 def cancel_operations():
-    """Kill all running ESPN and MLB launcher subprocesses."""
+    """Kill all running ESPN, MLB, and NFL launcher subprocesses."""
     import subprocess
     try:
-        # Find and kill espn_launcher.py and mlb_launcher.py processes
+        # Find and kill espn_launcher.py, mlb_launcher.py, and nfl_launcher.py processes
         result = subprocess.run(
-            ['pkill', '-f', 'espn_launcher.py|mlb_launcher.py'],
+            ['pkill', '-f', 'espn_launcher.py|mlb_launcher.py|nfl_launcher.py'],
             capture_output=True, text=True
         )
         killed = result.returncode == 0
