@@ -7,11 +7,17 @@ Usage: python3 mlb_launcher.py <fire_tv_ip> <away_team> <home_team>
 Exits 0 on success, 1 on failure. Prints JSON result to stdout.
 
 Strategy:
-  1. Launch MLB app, navigate to Games tab (UP, RIGHT, CENTER)
+  1. Launch MLB app, dump the UI, locate the "Games" nav tab by its label
+     text (not by counting DPAD presses) and tap it directly
   2. Games tab shows a 3-column grid of game cards
   3. Scan visible cards for target team, scroll DOWN for more rows
   4. Navigate to target card and select it
   5. Select broadcast, then find and select Watch Live
+
+Recovery never uses KEYCODE_BACK — on some screens the app's back-stack is
+shallower than expected, and BACK can pop out of the app entirely onto the
+Fire TV home screen instead of just backing up a level. All recovery re-locates
+the Games tab by label and taps it directly instead.
 """
 import sys
 import time
@@ -22,7 +28,7 @@ import os
 # Add backend to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from apis.tv_control.fire_tv import _run_adb_command, _send_wol, FIRE_TV_MAC_ADDRESSES
+from apis.tv_control.fire_tv import _run_adb_command, _send_wol, _wait_for_adb_ready, FIRE_TV_MAC_ADDRESSES
 from debug_logging.step_logger import start_run, log_step, get_current_run_id
 from debug_logging import run_storage
 
@@ -74,14 +80,23 @@ MLB_TEAM_ALIASES = {
 
 
 def _normalize_team(name):
-    """Normalize a team name/abbreviation to the name shown in the MLB app."""
+    """Normalize a team name/abbreviation to a single canonical form.
+
+    Alias lookup runs BEFORE the direct MLB_TEAMS check: some short forms the
+    app itself displays on game cards (e.g. 'D-backs') are also listed in
+    MLB_TEAMS so the grid parser recognizes them as team nodes, but they must
+    still canonicalize to the same team as their full name ('diamondbacks') —
+    otherwise a target normalized from the full name never matches a card
+    showing only the abbreviation.
+    """
     lower = name.strip().lower()
+    # Alias lookup first, so abbreviations that double as MLB_TEAMS entries
+    # (e.g. 'd-backs') still canonicalize consistently.
+    if lower in MLB_TEAM_ALIASES:
+        return MLB_TEAM_ALIASES[lower]
     # Direct match in team set
     if lower in MLB_TEAMS:
         return lower
-    # Alias lookup
-    if lower in MLB_TEAM_ALIASES:
-        return MLB_TEAM_ALIASES[lower]
     # Partial match — check if any team name contains the input or vice versa
     for team in MLB_TEAMS:
         if lower in team or team in lower:
@@ -90,6 +105,18 @@ def _normalize_team(name):
         if lower in alias or alias in lower:
             return team
     return lower  # Return as-is, best effort
+
+
+def _team_matches(target_team, team_text):
+    """Compare a card's on-screen team text against the canonical target team.
+
+    Canonicalizes both sides before comparing instead of a raw substring
+    check — the app renders some teams as an abbreviation on the game grid
+    (e.g. 'D-backs') that never appears as a substring of the full name a
+    target normalizes to (e.g. 'diamondbacks'), which used to cause an
+    infinite scroll loop past a card that was actually the right game.
+    """
+    return _normalize_team(team_text) == target_team
 
 
 def log(msg):
@@ -268,63 +295,58 @@ def _navigate_to_games_tab(ip):
     return _navigate_to_games_from_nav(ip)
 
 
-def _find_focused_tab(xml):
-    """Find which nav tab is currently focused by checking focused elements near top of screen."""
+def _find_nav_tab_bounds(xml, keyword):
+    """Find a nav-bar tab (top of screen, y < 300) whose text/content-desc contains
+    keyword. Returns (center_x, center_y) or None. Doesn't require focused="true" —
+    the tab is locatable by its label alone, regardless of what currently has focus.
+    """
     if not xml:
         return None
-    # Look for focused elements with text near the top nav bar (y < 300)
-    matches = re.findall(
-        r'text="([^"]*)"[^>]*focused="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-        xml
-    )
-    if not matches:
-        # Try reverse attribute order
-        matches = re.findall(
-            r'focused="true"[^>]*text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
-            xml
-        )
-    for text, x1, y1, x2, y2 in matches:
-        if int(y1) < 300 and text.strip():
-            return text.strip().lower()
-    return None
+    keyword = keyword.lower()
+    candidates = []
+    for text, x1, y1, x2, y2 in _get_all_texts(xml):
+        clean = text.strip().lower()
+        if y1 < 300 and keyword in clean:
+            candidates.append((x1, y1, x2, y2, clean))
+    if not candidates:
+        return None
+    # Prefer an exact match over a substring match
+    for x1, y1, x2, y2, clean in candidates:
+        if clean == keyword:
+            return (x1 + x2) // 2, (y1 + y2) // 2
+    x1, y1, x2, y2, clean = candidates[0]
+    return (x1 + x2) // 2, (y1 + y2) // 2
 
 
 def _navigate_to_games_from_nav(ip):
-    """From the nav bar, navigate LEFT to Home first, then RIGHT to Games, verify, and select."""
-    # Go all the way LEFT to ensure we're on Home (leftmost tab)
-    for _ in range(5):
-        _adb(ip, 'input keyevent KEYCODE_DPAD_LEFT')
-        time.sleep(0.3)
-    log("Navigated LEFT to Home tab")
-    time.sleep(0.5)
+    """Locate the Games tab in the nav bar by its label and tap it directly.
 
-    # Now go RIGHT to Games tab — it's typically 1 right of Home
-    _adb(ip, 'input keyevent KEYCODE_DPAD_RIGHT')
-    time.sleep(0.5)
-
-    # Verify we're on Games by checking focused tab text
-    xml = _dump_ui(ip)
-    focused_tab = _find_focused_tab(xml)
-    log(f"Focused tab after RIGHT: '{focused_tab}'")
-
-    if focused_tab and 'game' in focused_tab:
-        log("Confirmed on Games tab")
-    else:
-        # Try one more RIGHT in case layout differs
-        _adb(ip, 'input keyevent KEYCODE_DPAD_RIGHT')
-        time.sleep(0.5)
+    Blind LEFT/RIGHT-count navigation breaks whenever the nav bar's tab order
+    or count differs from what's assumed (landing on Watch/Settings/etc. instead
+    of Games). Reading the tab's bounds from the UI dump and tapping it directly
+    sidesteps that entirely — it doesn't matter what currently has focus or how
+    many tabs precede Games.
+    """
+    for attempt in range(3):
         xml = _dump_ui(ip)
-        focused_tab = _find_focused_tab(xml)
-        log(f"Focused tab after 2nd RIGHT: '{focused_tab}'")
+        pos = _find_nav_tab_bounds(xml, 'game')
+        if not pos:
+            log(f"Games tab not visible (attempt {attempt + 1}) — pressing UP to reveal nav bar")
+            _adb(ip, 'input keyevent KEYCODE_DPAD_UP')
+            time.sleep(1)
+            continue
 
-    # Select the tab
-    _adb(ip, 'input keyevent KEYCODE_DPAD_CENTER')
-    log("Selected tab, waiting 12s for load")
-    time.sleep(12)
+        cx, cy = pos
+        log(f"Found Games tab at ({cx},{cy}), tapping directly")
+        _adb(ip, f'input tap {cx} {cy}')
+        log("Tapped Games tab, waiting 12s for load")
+        time.sleep(12)
 
-    xml = _dump_ui(ip)
-    if xml and _parse_game_grid(xml):
-        return True
+        xml = _dump_ui(ip)
+        if xml and _parse_game_grid(xml):
+            return True
+        log(f"Games grid not loaded after tap (attempt {attempt + 1})")
+
     return False
 
 
@@ -392,7 +414,16 @@ def _find_focused_card(xml, rows):
 
 
 def _select_watch_live(ip, target_team):
-    """Find and select WATCH LIVE button specifically. Never select Resume."""
+    """Find and select WATCH LIVE button specifically. Never select Catch Up/Resume/etc.
+
+    Determines which button is truly focused from the UI dump's focused="true"
+    bounds (the same overlap technique used to find the focused game card) rather
+    than matching its label against a fixed list of expected button names. A label
+    that isn't on such a list (e.g. 'Catch Up') would never be recognized as
+    focused, so the old code would skip navigating away from it entirely and just
+    press CENTER on whatever was already focused — landing on Catch Up instead of
+    Watch Live whenever Catch Up happened to be the default focus.
+    """
 
     for attempt in range(3):
         btn_xml = _dump_ui(ip)
@@ -409,7 +440,7 @@ def _select_watch_live(ip, target_team):
             clean = text.strip().lower()
             # ONLY match exact "watch live" — nothing else
             if clean == 'watch live':
-                watch_live_button = (text.strip(), y1, (x1+x2)//2)  # (text, y_pos, x_center)
+                watch_live_button = (text.strip(), x1, y1, x2, y2)
                 log(f"✓ FOUND 'WATCH LIVE' at y={y1}")
                 break
 
@@ -419,27 +450,36 @@ def _select_watch_live(ip, target_team):
             time.sleep(1)
             continue
 
-        # Now find the currently focused button to navigate to WATCH LIVE
-        focused_texts = [t for t in all_texts if 'focused' in str(t).lower()]
+        # Find whichever button is ACTUALLY focused right now, by bounds overlap
+        # against the focused element(s) in the dump — not by label guessing.
+        focused_bounds_list = _get_focused_bounds(btn_xml)
+        focused_button = None
+        best_overlap = 0
+        for fx1, fy1, fx2, fy2 in focused_bounds_list:
+            for text, x1, y1, x2, y2 in all_texts:
+                ox = max(0, min(fx2, x2) - max(fx1, x1))
+                oy = max(0, min(fy2, y2) - max(fy1, y1))
+                overlap = ox * oy
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    focused_button = (text.strip(), x1, y1, x2, y2)
 
-        # Get focused button Y position
-        focused_y = None
-        for text, x1, y1, x2, y2 in all_texts:
-            clean = text.strip().lower()
-            # Check if this text is in a focused region
-            if clean in ['resume', 'resume from beginning', 'watch from the beginning', 'watch now']:
-                focused_y = y1
-                log(f"Currently focused: '{text}' at y={y1}")
-                break
+        _, wl_x1, watch_live_y, wl_x2, _ = watch_live_button
 
-        watch_live_y = watch_live_button[1]
+        if focused_button:
+            focused_text, _, focused_y, _, _ = focused_button
+            log(f"Currently focused: '{focused_text}' at y={focused_y}")
+        else:
+            focused_y = None
+            log("Could not determine focused button from UI dump")
 
-        # Navigate DOWN to WATCH LIVE if it's below focused button
-        if focused_y is not None and watch_live_y > focused_y:
-            nav_count = (watch_live_y - focused_y) // 100  # Approximate navigation
-            log(f"Navigating DOWN {nav_count} times to reach WATCH LIVE")
-            for _ in range(max(1, nav_count)):
-                _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
+        # Navigate to WATCH LIVE from wherever focus actually is, in either direction
+        if focused_y is not None and focused_y != watch_live_y:
+            direction = 'KEYCODE_DPAD_DOWN' if watch_live_y > focused_y else 'KEYCODE_DPAD_UP'
+            nav_count = max(1, abs(watch_live_y - focused_y) // 100)  # Approximate navigation
+            log(f"Navigating {direction.split('_')[-1]} {nav_count} times to reach WATCH LIVE")
+            for _ in range(nav_count):
+                _adb(ip, f'input keyevent {direction}')
                 time.sleep(0.5)
 
         # Press CENTER to select WATCH LIVE
@@ -472,10 +512,13 @@ def _select_watch_live(ip, target_team):
 
 
 def _retry_games_tab(ip):
-    """BACK -> UP -> navigate to Games tab with verification."""
-    log("Retrying: BACK -> UP -> find Games tab")
-    _adb(ip, 'input keyevent KEYCODE_BACK')
-    time.sleep(2)
+    """UP -> navigate to Games tab with verification.
+
+    Deliberately avoids KEYCODE_BACK: on some screens the MLB app's back-stack
+    is shallower than expected, so BACK can pop out of the app entirely and
+    land on the Fire TV home screen instead of just backing up a level.
+    """
+    log("Retrying: UP -> find Games tab")
     _adb(ip, 'input keyevent KEYCODE_DPAD_UP')
     time.sleep(1)
 
@@ -483,7 +526,15 @@ def _retry_games_tab(ip):
 
 
 def _wake_tv(ip):
-    """Send Wake-on-LAN and ADB WAKEUP to ensure Fire TV is responsive."""
+    """Send Wake-on-LAN and wait for the ADB daemon to actually be ready.
+
+    Network reachability comes back before the ADB daemon (and the app
+    rendering pipeline) does — a flat sleep here isn't enough after a fresh
+    wake and used to cause the launcher to force-start MLB before the device
+    could actually show it, so the first attempt would find no nav bar and
+    fall through to the slower recovery retry a device that was already
+    awake didn't need.
+    """
     mac = FIRE_TV_MAC_ADDRESSES.get(ip)
     if mac:
         log(f"Sending WoL to {ip} ({mac})")
@@ -491,7 +542,12 @@ def _wake_tv(ip):
             _send_wol(mac)
         except Exception as e:
             log(f"WoL failed: {e}")
-        time.sleep(3)
+        time.sleep(1)
+
+    if _wait_for_adb_ready(ip, max_wait_seconds=15):
+        log("ADB confirmed ready")
+    else:
+        log("ADB not confirmed ready after 15s wait — proceeding anyway")
 
     try:
         _adb(ip, 'input keyevent KEYCODE_WAKEUP')
@@ -511,18 +567,24 @@ def _reset_to_mlb_home(ip):
     time.sleep(10)
 
 
-def _attempt_launch(ip, target_team):
-    """Single attempt to find and launch the target game. Returns result dict or None to retry."""
+def _attempt_launch(ip, target_team, skip_launch=False, initial_wait=15):
+    """Single attempt to find and launch the target game. Returns result dict or None to retry.
 
-    # Phase 1: Launch app and navigate to Games tab
-    log(f"Force-stopping MLB on {ip}")
-    _adb(ip, f'am force-stop {MLB_PKG}')
-    time.sleep(2)
+    skip_launch: the caller (a retry) already force-stopped/restarted the app via
+    _reset_to_mlb_home — doing it again here would force-stop a freshly-started app
+    a second time in a row, which is a second needless visible drop to the Fire TV
+    home screen on top of the one the caller already caused.
+    """
+    if not skip_launch:
+        # Phase 1: Launch app and navigate to Games tab
+        log(f"Force-stopping MLB on {ip}")
+        _adb(ip, f'am force-stop {MLB_PKG}')
+        time.sleep(2)
 
-    log(f"Starting MLB app on {ip}")
-    _adb(ip, f'am start -n {MLB_ACTIVITY}')
-    log("Waiting 15s for MLB app to fully load...")
-    time.sleep(15)
+        log(f"Starting MLB app on {ip}")
+        _adb(ip, f'am start -n {MLB_ACTIVITY}')
+        log(f"Waiting {initial_wait}s for MLB app to fully load...")
+        time.sleep(initial_wait)
 
     # Try to get to Games tab, retry up to 3 times
     got_games = _navigate_to_games_tab(ip)
@@ -571,8 +633,6 @@ def _attempt_launch(ip, target_team):
             # If we lost the games grid entirely, recover
             if not rows:
                 log("Lost games grid — recovering")
-                _adb(ip, 'input keyevent KEYCODE_BACK')
-                time.sleep(2)
                 got_games = _retry_games_tab(ip)
                 if got_games:
                     _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
@@ -599,7 +659,7 @@ def _attempt_launch(ip, target_team):
             for row_idx, row in enumerate(rows):
                 for col_idx, card in enumerate(row):
                     for team_text in card['teams']:
-                        if target_team.lower() in team_text.lower():
+                        if _team_matches(target_team, team_text):
                             target_row, target_col = row_idx, col_idx
                             break
                     if target_row is not None:
@@ -639,7 +699,7 @@ def _attempt_launch(ip, target_team):
                     for ri, row in enumerate(retry_rows):
                         for ci, card in enumerate(row):
                             for tt in card['teams']:
-                                if target_team.lower() in tt.lower():
+                                if _team_matches(target_team, tt):
                                     target_row, target_col = ri, ci
                                     break
                             if target_row is not None:
@@ -692,7 +752,7 @@ def _attempt_launch(ip, target_team):
                     focused_card = verify_rows[vf_row][vf_col]
                     log(f"VERIFY: focused card = {focused_card['teams']}")
                     card_has_target = any(
-                        target_team.lower() in t.lower() for t in focused_card['teams']
+                        _team_matches(target_team, t) for t in focused_card['teams']
                     )
                     if card_has_target:
                         log(f"VERIFY OK: {target_team} confirmed on focused card!")
@@ -710,8 +770,6 @@ def _attempt_launch(ip, target_team):
 
             if not nav_success:
                 log("Navigation failed after 3 attempts — restarting from Games tab")
-                _adb(ip, 'input keyevent KEYCODE_BACK')
-                time.sleep(2)
                 got_games = _retry_games_tab(ip)
                 if got_games:
                     _adb(ip, 'input keyevent KEYCODE_DPAD_DOWN')
@@ -760,12 +818,18 @@ def launch_game(ip, away_team, home_team, _run_id=None):
             if attempt > 0:
                 log(f"=== RETRY {attempt} — resetting to MLB home ===")
                 _reset_to_mlb_home(ip)
+                skip_launch = True
             else:
-                # Phase 0: Wake the Fire TV
+                # Phase 0: Wake the Fire TV — coldest possible start, give the app
+                # extra time to load versus a warm retry
                 _wake_tv(ip)
+                skip_launch = False
 
             try:
-                result = _attempt_launch(ip, target_team)
+                result = _attempt_launch(
+                    ip, target_team, skip_launch=skip_launch,
+                    initial_wait=25 if attempt == 0 else 15
+                )
             except Exception as e:
                 log(f"Attempt {attempt + 1} failed with exception: {e}")
                 result = None

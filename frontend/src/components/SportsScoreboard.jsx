@@ -71,6 +71,7 @@ const SportsScoreboard = ({ selectedTV, onLaunchApp, tvs, onGameLaunched }) => {
           away_team: game.away_team.short_name,
           home_team: game.home_team.short_name,
           espn_id: game.espn_id || null,
+          league: game.league || null,
           title: `${game.away_team.name} vs ${game.home_team.name}`
         });
       // Peacock / Amazon Prime: just launch the app on Roku (no game navigation)

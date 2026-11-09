@@ -257,6 +257,31 @@ const Dashboard = () => {
     }
   };
 
+  // target: 'roku' or 'firetv' — which device YouTube TV is launched on
+  const handleStartAll = async (target) => {
+    const label = target === 'roku' ? 'Rokus' : 'Fire TVs';
+    try {
+      setIsLoading(true);
+      const response = await axios.post(`/api/tv/start-all-${target}`);
+      const { tvs_powered_on, total_tvs, youtube_tv_launched, total_launch_targets, antenna_changed, antenna_failures } = response.data;
+      let msg = `✅ ${tvs_powered_on}/${total_tvs} TVs powered on, YouTube TV launched on ${youtube_tv_launched}/${total_launch_targets} ${label}`;
+      if (target === 'roku') {
+        msg = `${antenna_changed}/${total_tvs} TVs set to antenna, ` + msg;
+        const failed = Object.entries(antenna_failures || {});
+        if (failed.length > 0) {
+          msg = `⚠️ ${msg}\n\nAntenna change FAILED on:\n` + failed.map(([id, m]) => `• ${id}: ${m}`).join('\n');
+        }
+      }
+      alert(msg);
+      setError(null);
+    } catch (err) {
+      console.error(`Error starting everything (${target}):`, err.response?.data || err.message);
+      setError(`Failed to start TVs and launch YouTube TV on ${label} - Check console for details`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRestoreFireTVSettings = async () => {
     try {
       setIsLoading(true);
@@ -305,6 +330,25 @@ const Dashboard = () => {
       </header>
 
       {error && <div className="error-message">{error}</div>}
+
+      <div className="main-controls">
+        <button
+          onClick={() => handleStartAll('roku')}
+          disabled={isLoading}
+          className="start-all-btn start-all-roku"
+          title="Set all 4 TVs to their antenna channel, then launch YouTube TV on all 4 Rokus"
+        >
+          ▶️ Start All TVs + YouTube TV on ROKU
+        </button>
+        <button
+          onClick={() => handleStartAll('firetv')}
+          disabled={isLoading}
+          className="start-all-btn start-all-firetv"
+          title="Power on all 4 TVs and launch YouTube TV on all 4 Fire TVs"
+        >
+          ▶️ Start All TVs + YouTube TV on FIRE TV
+        </button>
+      </div>
 
       <div className="power-controls">
         <button

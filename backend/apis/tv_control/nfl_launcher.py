@@ -56,12 +56,16 @@ ADB_TIMEOUT = 30.0
 # horizontal pitch starting at the row's left margin; captions render below
 # every tile regardless of focus state, so team names can be read without
 # ever needing to detect which tile currently has focus.
-TILE_LEFT_X0 = 88
-TILE_PITCH = 592
+TILE_LEFT_X0 = 96
+TILE_PITCH = 588
 TILE_CAPTION_WIDTH = 560
-CAPTION_Y0 = 620
-CAPTION_Y1 = 800
-HEADER_CROP = (80, 200, 500, 290)
+CAPTION_Y0 = 445
+CAPTION_Y1 = 610
+# The focused row's title pins to the very top of the screen once vertical
+# scrolling settles (confirmed live: 'NFL' OCRs cleanly here, while the old
+# (80, 200, 500, 290) crop landed on tile artwork and read only garbage, so
+# DOWN scrolling sailed straight past the NFL row).
+HEADER_CROP = (80, 40, 700, 110)
 NUM_VISIBLE_COLUMNS = 4  # ~3 full + 1 partial visible at 1920 width
 
 NFL_TEAMS = {
@@ -413,16 +417,35 @@ def _find_highlighted_button(img, region):
     "Watch now" pill OCR'd as just "About / Upcoming / Suggested" — the
     highlighted item vanished). Isolating the bright bounding box first and
     OCR'ing only that fixes it.
+
+    The bounding box must come from the pill itself, not from every bright
+    pixel in the region: the unfocused menu items ("About", "Upcoming") are
+    white text too, so a bbox over all bright pixels spans the pill AND
+    those items and OCRs as 'about / upcoming' (confirmed live). The pill
+    is a solid fill, so only its rows contain a long contiguous bright run;
+    text strokes never do.
     """
+    MIN_PILL_RUN = 80
     crop = img.crop(region)
     arr = np.array(crop.convert('L'))
     bright = arr > 200
-    rows = np.where(bright.any(axis=1))[0]
-    cols = np.where(bright.any(axis=0))[0]
-    if len(rows) == 0 or len(cols) == 0:
+    pill_rows = []
+    x_starts = []
+    x_ends = []
+    for y in range(bright.shape[0]):
+        edges = np.diff(np.concatenate(([0], bright[y].astype(np.int8), [0])))
+        starts = np.where(edges == 1)[0]
+        ends = np.where(edges == -1)[0]
+        runs = ends - starts
+        if len(runs) and runs.max() >= MIN_PILL_RUN:
+            longest = int(runs.argmax())
+            pill_rows.append(y)
+            x_starts.append(int(starts[longest]))
+            x_ends.append(int(ends[longest]) - 1)
+    if not pill_rows:
         return ''
-    y0, y1 = int(rows.min()), int(rows.max())
-    x0, x1 = int(cols.min()), int(cols.max())
+    y0, y1 = min(pill_rows), max(pill_rows)
+    x0, x1 = min(x_starts), max(x_ends)
     if (y1 - y0) < 15 or (x1 - x0) < 30:
         return ''
     tight = crop.crop((x0, y0, x1 + 1, y1 + 1))
@@ -453,6 +476,12 @@ def _check_media_playing(ip):
         return False, ''
     block = output[idx:idx + 1500]
     is_playing = 'PlaybackState {state=3' in block  # state=3 == Android's STATE_PLAYING
+    # A leftover session from a previous/stopped player also reads state=3 but
+    # with speed=0.0 and no metadata (confirmed live: reported "playing" while
+    # the TV sat on a pre-kickoff game page). Real playback runs at speed > 0.
+    speed_match = re.search(r'PlaybackState \{state=3[^}]*?speed=([0-9.]+)', block)
+    if is_playing and speed_match and float(speed_match.group(1)) <= 0:
+        is_playing = False
     desc_match = re.search(r'description=([^,]*),', block)
     description = desc_match.group(1).strip() if desc_match else ''
     return is_playing, description

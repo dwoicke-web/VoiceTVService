@@ -28,7 +28,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from apis.tv_control.fire_tv import _run_adb_command, _send_wol, FIRE_TV_MAC_ADDRESSES
-from debug_logging.step_logger import start_run, log_step, get_current_run_id
+from debug_logging.step_logger import start_run, log_step, get_run, get_current_run_id
 from debug_logging import run_storage
 
 ESPN_PKG = 'com.espn.gtv'
@@ -101,8 +101,8 @@ def _get_screen_texts(xml):
     return results
 
 
-def _find_nhl_game_cards(texts):
-    """Extract individual NHL game cards from screen texts.
+def _find_nhl_game_cards(texts, league='NHL'):
+    """Extract individual game cards for `league` (row header text) from screen texts.
 
     Game cards have content-desc like "ESPN+ • NHL Live Avalanche 4 Penguins 1 6:02 - 2nd"
     Returns list of (full_text, x1, y1, x2, y2) sorted by x position (left to right).
@@ -111,7 +111,7 @@ def _find_nhl_game_cards(texts):
     for t, x1, y1, x2, y2 in texts:
         # Individual game cards contain "NHL" and "Live" and team-like words
         # Filter out summary headers (contain "•" multiple times like "SEA vs. FLA • OTT vs. DET")
-        if 'NHL' in t and 'Live' in t and t.count(' vs. ') <= 1:
+        if league in t and 'Live' in t and t.count(' vs. ') <= 1:
             # Must look like a game card, not a section header
             if 'On Now' not in t and 'Stream over' not in t:
                 cards.append((t, x1, y1, x2, y2))
@@ -187,6 +187,26 @@ def _wake_and_launch(ip):
     time.sleep(18)
 
 
+# Scoreboard league codes (game.league from /api/sports/games) whose ESPN home
+# row header differs from the code itself. Anything not listed here is used
+# as-is (e.g. 'NHL' -> the "NHL" row). The NCAAM header text was read live
+# off the ESPN Fire TV home screen.
+ESPN_ROW_HEADERS = {
+    'NCAAM': "NCAA Men's Basketball",
+}
+
+
+def _row_header_for(league):
+    """Map a scoreboard league code to the row header text ESPN renders."""
+    return ESPN_ROW_HEADERS.get((league or 'NHL').strip().upper(), (league or 'NHL').strip())
+
+
+def _norm_header(text):
+    """Case/whitespace/apostrophe-insensitive form of a row header, so a
+    typographic apostrophe can't make "NCAA Men's Basketball" miss."""
+    return re.sub(r'\s+', ' ', text.replace('\u2019', "'").replace('\u2018', "'")).strip().upper()
+
+
 def _scroll_down_to_nhl(ip, league='NHL', max_downs=15):
     """Scroll DOWN through ESPN home screen until we find the league row.
 
@@ -197,7 +217,7 @@ def _scroll_down_to_nhl(ip, league='NHL', max_downs=15):
     log(f"\n========== PHASE 1: SCROLL DOWN TO FIND {league} ROW ==========")
     last_texts_key = None
     stuck_count = 0
-    league_upper = league.strip().upper()
+    league_upper = _norm_header(league)
 
     for i in range(max_downs):
         log(f"\n--- DOWN iteration {i} ---")
@@ -213,7 +233,7 @@ def _scroll_down_to_nhl(ip, league='NHL', max_downs=15):
         found_league = False
         found_leagues = False
         for t, x1, y1, x2, y2 in texts:
-            t_upper = t.strip().upper()
+            t_upper = _norm_header(t)
             # Look for the specific league as a section header
             if t_upper == league_upper:
                 log(f"✓ SUCCESS: Found '{league}' header row at y={y1}")
@@ -656,7 +676,7 @@ def _get_focused_game(xml):
     return best_match, focused
 
 
-def _scan_nhl_row_for_team(ip, target_team):
+def _scan_nhl_row_for_team(ip, target_team, league='NHL'):
     """Scan the NHL game row for the target team.
 
     Strategy:
@@ -676,11 +696,11 @@ def _scan_nhl_row_for_team(ip, target_team):
     for batch in range(10):
         xml = _dump_ui(ip)
         texts = _get_screen_texts(xml)
-        cards = _find_nhl_game_cards(texts)
+        cards = _find_nhl_game_cards(texts, league)
         focused_desc, focused_bounds = _get_focused_game(xml)
 
         card_summaries = [c[0][:60] for c in cards]
-        log(f"Batch {batch}: focused='{(focused_desc or 'None')[:60]}', {len(cards)} NHL cards")
+        log(f"Batch {batch}: focused='{(focused_desc or 'None')[:60]}', {len(cards)} {league} cards")
         for c in card_summaries:
             log(f"  card: {c}")
 
@@ -773,7 +793,7 @@ def _scan_nhl_row_for_team(ip, target_team):
     return False
 
 
-def _select_game_on_hub(ip, target_team):
+def _select_game_on_hub(ip, target_team, league='NHL'):
     """On the NHL hub/detail page, find and select the specific game.
 
     After selecting a game card from the NHL row, ESPN may show a hub page
@@ -798,7 +818,7 @@ def _select_game_on_hub(ip, target_team):
     # Find all game entries with their y-positions
     game_entries = []
     for t, x1, y1, x2, y2 in texts:
-        if ('vs.' in t or 'Live' in t) and 'NHL' in t and 'Stream over' not in t:
+        if ('vs.' in t or 'Live' in t) and league in t and 'Stream over' not in t:
             game_entries.append((t, x1, y1, x2, y2))
     game_entries.sort(key=lambda g: g[2])  # Sort by y position
 
@@ -950,6 +970,7 @@ def launch_game(ip, away_team, home_team, league='NHL', _run_id=None):
             'status': 'in_progress',
         })
 
+    league = _row_header_for(league)
     target_team = away_team or home_team
     other_team = home_team if target_team == away_team else away_team
 
@@ -1007,7 +1028,7 @@ def launch_game(ip, away_team, home_team, league='NHL', _run_id=None):
                         break
 
                 # Phase 4: Scan RIGHT through games for our team
-                found_team = _scan_nhl_row_for_team(ip, target_team)
+                found_team = _scan_nhl_row_for_team(ip, target_team, league)
                 if not found_team and other_team:
                     log(f"'{target_team}' not found, trying '{other_team}'")
                     # Go all the way LEFT to reset to start of row
@@ -1015,7 +1036,7 @@ def launch_game(ip, away_team, home_team, league='NHL', _run_id=None):
                         _adb(ip, 'input keyevent KEYCODE_DPAD_LEFT')
                         time.sleep(0.3)
                     time.sleep(1)
-                    found_team = _scan_nhl_row_for_team(ip, other_team)
+                    found_team = _scan_nhl_row_for_team(ip, other_team, league)
                     if found_team:
                         target_team = other_team
 
@@ -1024,7 +1045,7 @@ def launch_game(ip, away_team, home_team, league='NHL', _run_id=None):
                 continue
 
             # Phase 5: On game detail/hub page, find specific game and watch
-            if _select_game_on_hub(ip, target_team):
+            if _select_game_on_hub(ip, target_team, league):
                 result = {'success': True, 'team': target_team, 'method': 'screen_scrape'}
                 return result
             else:
@@ -1063,15 +1084,16 @@ def launch_game(ip, away_team, home_team, league='NHL', _run_id=None):
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print(json.dumps({'error': 'Usage: espn_launcher.py <ip> <away_team> <home_team>'}))
+        print(json.dumps({'error': 'Usage: espn_launcher.py <ip> <away_team> <home_team> [league]'}))
         sys.exit(1)
 
     ip = sys.argv[1]
     away = sys.argv[2]
     home = sys.argv[3]
+    league = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4].strip() else 'NHL'
 
     try:
-        result = launch_game(ip, away, home)
+        result = launch_game(ip, away, home, league=league)
         print(json.dumps(result))
         sys.exit(0 if 'success' in result else 1)
     except Exception as e:

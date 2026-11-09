@@ -291,6 +291,50 @@
   }
 }
 
+/* Main one-button startup */
+.main-controls {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.start-all-btn {
+  padding: 20px 48px;
+  font-size: 22px;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(135deg, #2196f3 0%, #1565c0 100%);
+  color: white;
+}
+
+.start-all-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #42a5f5 0%, #1976d2 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(33, 150, 243, 0.45);
+}
+
+/* Fire TV variant — purple so the two start buttons aren't confused */
+.start-all-firetv {
+  background: linear-gradient(135deg, #7e57c2 0%, #4527a0 100%);
+}
+
+.start-all-firetv:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9575cd 0%, #5e35b1 100%);
+  box-shadow: 0 8px 22px rgba(126, 87, 194, 0.45);
+}
+
+.start-all-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Power Control Buttons */
 .power-controls {
   display: flex;

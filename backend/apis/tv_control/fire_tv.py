@@ -39,18 +39,77 @@ def _send_wol(mac_address: str):
     logger.info(f"Sent Wake-on-LAN packet to {mac_address}")
 
 
-def _is_adb_responsive(ip: str, port: int = 5555, timeout: float = 5.0) -> bool:
-    """Check if ADB device is responsive (not offline)"""
-    try:
-        result = subprocess.run(
-            ['adb', '-s', f'{ip}:{port}', 'shell', 'getprop ro.serialno'],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-        return result.returncode == 0 and result.stdout.strip()
-    except:
-        return False
+def _is_adb_responsive(ip: str, port: int = 5555, timeout: float = 5.0, retries: int = 1) -> bool:
+    """Check if ADB device is responsive (not offline).
+
+    Args:
+        ip: Device IP address
+        port: ADB port (default 5555)
+        timeout: Timeout per attempt in seconds
+        retries: Number of retry attempts with 1-second delays between them
+
+    Returns:
+        True if device responds to ADB shell command, False otherwise
+    """
+    import time
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(
+                ['adb', '-s', f'{ip}:{port}', 'shell', 'getprop ro.serialno'],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return True
+        except subprocess.TimeoutExpired:
+            pass  # Try again
+        except:
+            pass  # Try again
+
+        # Wait before retry (except on last attempt)
+        if attempt < retries - 1:
+            time.sleep(1)
+
+    return False
+
+
+def _wait_for_adb_ready(ip: str, port: int = 5555, max_wait_seconds: int = 15) -> bool:
+    """Wait for ADB daemon to fully initialize after device wake.
+
+    When a Fire TV wakes from sleep, the network comes up before the ADB daemon
+    is listening. This waits with aggressive retries for ADB to be ready.
+
+    Args:
+        ip: Device IP address
+        port: ADB port (default 5555)
+        max_wait_seconds: Maximum time to wait for ADB readiness
+
+    Returns:
+        True if ADB becomes responsive, False if timeout expires
+    """
+    import time
+    start_time = time.time()
+    attempt = 0
+    while time.time() - start_time < max_wait_seconds:
+        attempt += 1
+        try:
+            result = subprocess.run(
+                ['adb', '-s', f'{ip}:{port}', 'shell', 'getprop ro.serialno'],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(f"ADB ready on {ip} after {time.time() - start_time:.1f}s (attempt {attempt})")
+                return True
+        except subprocess.TimeoutExpired:
+            pass
+        except:
+            pass
+
+        time.sleep(0.5)  # Short sleep between aggressive retries
+    return False
 
 
 def _attempt_adb_recovery(ip: str, device_name: str, port: int = 5555) -> bool:
@@ -117,6 +176,30 @@ def _run_adb_commands(ip: str, commands: list, port: int = 5555, timeout: float 
         if delay > 0:
             time.sleep(delay)
     return results
+
+
+def _ensure_adb_debugging_enabled(ip: str, port: int = 5555) -> bool:
+    """Ensure ADB Debugging is enabled on device (auto-recovery from disabled state)"""
+    try:
+        result = subprocess.run(
+            ['adb', '-s', f'{ip}:{port}', 'shell', 'settings', 'get', 'global', 'adb_enabled'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip() != '1':
+            logger.warning(f"ADB Debugging disabled on {ip}. Re-enabling...")
+            subprocess.run(
+                ['adb', '-s', f'{ip}:{port}', 'shell', 'settings', 'put', 'global', 'adb_enabled', '1'],
+                capture_output=True,
+                timeout=5,
+                check=False
+            )
+            return True
+        return False
+    except Exception as e:
+        logger.debug(f"Could not verify ADB Debugging on {ip}: {e}")
+        return False
 
 
 class FireTVDevice(TVDevice):
@@ -371,17 +454,28 @@ class FireTVDevice(TVDevice):
         """Send Wake-on-LAN to ensure device is responsive before ADB commands.
 
         Fire TVs go into a deep sleep after idle time and won't respond to ADB
-        until woken up. This sends a WoL packet and waits for the device to
-        become reachable.
+        until woken up. This sends a WoL packet, waits for the ADB daemon to
+        initialize, and ensures ADB Debugging is enabled.
         """
         mac = FIRE_TV_MAC_ADDRESSES.get(self.device_ip)
         if mac:
             try:
                 _send_wol(mac)
                 logger.info(f"Pre-command WoL sent to {self.device_name} ({mac})")
-                await asyncio.sleep(3)  # Give device time to wake up
+                await asyncio.sleep(1)  # Quick sleep before checking
             except Exception as e:
                 logger.warning(f"Pre-command WoL failed for {self.device_name}: {e}")
+
+        # Wait for ADB daemon to fully initialize (critical for fresh wake-ups)
+        loop = asyncio.get_event_loop()
+        adb_ready = await loop.run_in_executor(
+            None, _wait_for_adb_ready, self.device_ip, self.adb_port, 15
+        )
+        if not adb_ready:
+            logger.warning(f"ADB not ready on {self.device_name} after 15s, proceeding anyway")
+
+        # Ensure ADB Debugging is enabled (auto-recovery from disabled state)
+        await loop.run_in_executor(None, _ensure_adb_debugging_enabled, self.device_ip, self.adb_port)
 
     async def power_off(self) -> Dict[str, Any]:
         """Power off the Fire TV device (put into sleep/standby)"""

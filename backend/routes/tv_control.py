@@ -402,6 +402,179 @@ def power_all():
         }), 500
 
 
+async def _run_with_timeout(device_id, coro, timeout):
+    """Await one device operation, converting timeouts/exceptions into a result dict."""
+    try:
+        return device_id, await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning(f"start-all: timeout on {device_id}")
+        return device_id, {'status': 'timeout', 'message': f'{device_id} not responding', 'device_id': device_id}
+    except Exception as e:
+        logger.error(f"start-all: error on {device_id}: {e}")
+        return device_id, {'status': 'error', 'message': str(e), 'device_id': device_id}
+
+
+@tv_control_bp.route('/start-all-roku', methods=['POST'])
+def start_all_roku():
+    """One-button startup: put all 4 TVs on their antenna channel, THEN launch YouTube TV on all 4 Rokus.
+
+    Phase 1 (all 4 Fire TVs in parallel): power on, then reset to the antenna
+    input via FireTVDevice.reset_channel() -- the exact same code the per-TV
+    /reset-channel button uses. The per-TV channel (7/8/10/11) comes from the
+    paired Roku's configured channel (ROKU_<TV>_CHANNEL env), not a hardcoded map.
+
+    Phase 2 (only after every phase-1 task has finished or timed out): launch
+    YouTube TV on the 4 standalone Rokus over ECP (RokuDevice.launch_app).
+
+    A TV whose antenna change fails is reported in 'antenna_failures' (and the
+    status is 'partial') but does not stop the other TVs / Rokus.
+    """
+    try:
+        manager = _initialize_tv_devices()
+        loop = _get_or_create_event_loop()
+
+        fire_tvs = [(did, dev) for did, dev in manager.devices.items() if isinstance(dev, FireTVDevice)]
+        rokus = [(did, dev) for did, dev in manager.devices.items() if isinstance(dev, RokuDevice)]
+
+        if not fire_tvs and not rokus:
+            return jsonify({'error': 'No Fire TV or Roku devices found'}), 404
+
+        def antenna_channel(tv_id):
+            roku = manager.devices.get(f'{tv_id}_roku')
+            return getattr(roku, 'channel', None) or None
+
+        async def power_then_antenna(tv_id, device):
+            power_result = await device.power_on()
+            channel = antenna_channel(tv_id)
+            if not channel:
+                antenna_result = {'status': 'error', 'device_id': tv_id,
+                                  'message': f'No antenna channel configured for {tv_id} (ROKU_{tv_id.upper()}_CHANNEL)'}
+            else:
+                antenna_result = await device.reset_channel(channel)
+            return {'power': power_result, 'antenna': antenna_result}
+
+        async def antenna_phase():
+            return await asyncio.gather(*[
+                _run_with_timeout(did, power_then_antenna(did, dev), 90.0) for did, dev in fire_tvs
+            ])
+
+        async def roku_phase():
+            return await asyncio.gather(*[
+                _run_with_timeout(did, dev.launch_app('YouTubeTV'), 45.0) for did, dev in rokus
+            ])
+
+        # Phase 1: antenna on every TV; phase 2 waits for all of it to finish.
+        antenna_raw = dict(loop.run_until_complete(antenna_phase()))
+        roku_results = dict(loop.run_until_complete(roku_phase()))
+
+        results = {}
+        antenna_results = {}
+        antenna_failures = {}
+        powered = 0
+        antenna_ok = 0
+        for did, _ in fire_tvs:
+            r = antenna_raw[did]
+            power = r.get('power', r)  # timeout/exception results are flat dicts
+            antenna = r.get('antenna', r)
+            results[did] = power
+            antenna_results[did] = antenna
+            if power.get('status') == 'success':
+                powered += 1
+            if antenna.get('status') == 'success':
+                antenna_ok += 1
+                clear_now_playing(did)
+            else:
+                antenna_failures[did] = antenna.get('message') or antenna.get('error') or 'antenna change failed'
+
+        launched = 0
+        for did, _ in rokus:
+            results[did] = roku_results[did]
+            if roku_results[did].get('status') == 'success':
+                launched += 1
+                set_now_playing(did.replace('_roku', ''), 'YouTubeTV', 'YouTube TV')
+
+        if antenna_failures:
+            logger.warning(f"start-all-roku: antenna change failed on {antenna_failures}")
+
+        if not (antenna_ok or launched):
+            status = 'error'
+        elif antenna_failures or launched < len(rokus):
+            status = 'partial'
+        else:
+            status = 'success'
+
+        return jsonify({
+            'status': status,
+            'tvs_powered_on': powered,
+            'total_tvs': len(fire_tvs),
+            'antenna_changed': antenna_ok,
+            'antenna_failures': antenna_failures,
+            'antenna_results': antenna_results,
+            'youtube_tv_launched': launched,
+            'total_launch_targets': len(rokus),
+            'results': results,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error with start-all-roku command: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to start all (Roku)', 'message': str(e)}), 500
+
+
+@tv_control_bp.route('/start-all-firetv', methods=['POST'])
+def start_all_firetv():
+    """One-button startup: power on all 4 Fire TVs and launch YouTube TV on the Fire TVs themselves.
+
+    Each Fire TV is powered on first and then YouTube TV is launched on it
+    (launch_app wakes/waits for ADB itself, so it's safe right after
+    power_on). The four Fire TVs run in parallel with each other.
+    """
+    try:
+        manager = _initialize_tv_devices()
+        loop = _get_or_create_event_loop()
+
+        fire_tvs = [(did, dev) for did, dev in manager.devices.items() if isinstance(dev, FireTVDevice)]
+        if not fire_tvs:
+            return jsonify({'error': 'No Fire TV devices found'}), 404
+
+        async def power_then_launch(device):
+            # Launch regardless of the power_on result: the TV may already be
+            # on (power_on can still report an error), and launch_app does its
+            # own wake + ADB-ready wait before sending the command.
+            power_result = await device.power_on()
+            launch_result = await device.launch_app('YouTubeTV')
+            return {'power': power_result, 'launch': launch_result}
+
+        async def start_everything():
+            return await asyncio.gather(*[
+                _run_with_timeout(did, power_then_launch(dev), 90.0) for did, dev in fire_tvs
+            ])
+
+        all_results = dict(loop.run_until_complete(start_everything()))
+
+        powered = 0
+        launched = 0
+        for did, _ in fire_tvs:
+            result = all_results[did]
+            if result.get('power', {}).get('status') == 'success':
+                powered += 1
+            if result.get('launch', {}).get('status') == 'success':
+                launched += 1
+                set_now_playing(did, 'YouTubeTV', 'YouTube TV')
+
+        return jsonify({
+            'status': 'success' if (powered or launched) else 'error',
+            'tvs_powered_on': powered,
+            'total_tvs': len(fire_tvs),
+            'youtube_tv_launched': launched,
+            'total_launch_targets': len(fire_tvs),
+            'results': all_results,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error with start-all-firetv command: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to start all (Fire TV)', 'message': str(e)}), 500
+
+
 @tv_control_bp.route('/tune', methods=['POST'])
 def tune_channel():
     """
@@ -576,6 +749,7 @@ def launch_espn_game():
     away_team = data.get('away_team', '')
     home_team = data.get('home_team', '')
     title = data.get('title', 'ESPN+ game')
+    league = (data.get('league') or '').strip()
 
     if not tv_id:
         return jsonify({'error': 'Missing required field: tv_id'}), 400
@@ -611,6 +785,10 @@ def launch_espn_game():
         )
 
         cmd = [python_path, launcher_script, fire_tv_ip, away_team, home_team]
+        # Scoreboard league code (e.g. 'NCAAM') — selects which ESPN home row
+        # to stop on. Omitted -> launcher defaults to the NHL row.
+        if league:
+            cmd.append(league)
 
         log_file = f'/tmp/espn_launch_{tv_id}.log'
         logger.info(f"ESPN launching subprocess for {tv_id}: {' '.join(cmd)} > {log_file}")
